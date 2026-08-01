@@ -1,0 +1,38 @@
+# ===== Dependencies =====
+node_modules/
+.pnp
+.pnp.js
+
+# ===== Build output =====
+dist/
+unpackage/
+target/
+*.apk
+*.ipa
+*.aab
+
+# ===== IDE & Editor =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== Env & Secrets =====
+.env.local
+.env.*.local
+*.log
+
+# ===== Java =====
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+
+# ===== Uni-App =====
+src/static/icons/*.png
+
+# ===== OS =====
+Desktop.ini
