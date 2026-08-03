@@ -38,7 +38,7 @@
           </picker>
         </view>
         <view v-if="dayLoading" class="loading-text">加载中...</view>
-        <DaySummary v-else-if="dayData" :data="dayData" />
+        <DaySummaryComp v-else-if="dayData" :data="dayData" />
         <EmptyState v-else text="暂无数据" />
       </view>
 
@@ -50,7 +50,7 @@
           <text class="nav-btn" @tap="weekNext">›</text>
         </view>
         <view v-if="weekLoading" class="loading-text">加载中...</view>
-        <WeekSummary v-else-if="weekData" :data="weekData" />
+        <WeekSummaryComp v-else-if="weekData" :data="weekData" />
         <EmptyState v-else text="暂无数据" />
       </view>
 
@@ -62,7 +62,7 @@
           <text class="nav-btn" @tap="monthNext">›</text>
         </view>
         <view v-if="monthLoading" class="loading-text">加载中...</view>
-        <MonthSummary v-else-if="monthData" :data="monthData" />
+        <MonthSummaryComp v-else-if="monthData" :data="monthData" />
         <EmptyState v-else text="暂无数据" />
       </view>
 
@@ -74,7 +74,7 @@
           <text class="nav-btn" @tap="yearNext">›</text>
         </view>
         <view v-if="yearLoading" class="loading-text">加载中...</view>
-        <YearSummary v-else-if="yearData" :data="yearData" />
+        <YearSummaryComp v-else-if="yearData" :data="yearData" />
         <EmptyState v-else text="暂无数据" />
       </view>
 
@@ -85,7 +85,7 @@
           <text class="link" @tap="goCustomRange">设置区间 ›</text>
         </view>
         <view v-if="customLoading" class="loading-text">加载中...</view>
-        <CustomSummary v-else-if="customData" :data="customData" @export="handleExport" />
+        <CustomSummaryComp v-else-if="customData" :data="customData" @export="handleExport" />
         <view v-else class="empty-hint" @tap="goCustomRange">
           <text>点击选择日期区间查看汇总</text>
         </view>
@@ -127,11 +127,11 @@ import { getTodayDateString, getWeekStart, addDays, subDays, addMonths, subMonth
 import type { SummaryDimension, DaySummary, WeekSummary, MonthSummary, YearSummary, CustomSummary } from '@/types/summary'
 
 // Components
-import DaySummary from '@/components/mine/DaySummary.vue'
-import WeekSummary from '@/components/mine/WeekSummary.vue'
-import MonthSummary from '@/components/mine/MonthSummary.vue'
-import YearSummary from '@/components/mine/YearSummary.vue'
-import CustomSummary from '@/components/mine/CustomSummary.vue'
+import DaySummaryComp from '@/components/mine/DaySummary.vue'
+import WeekSummaryComp from '@/components/mine/WeekSummary.vue'
+import MonthSummaryComp from '@/components/mine/MonthSummary.vue'
+import YearSummaryComp from '@/components/mine/YearSummary.vue'
+import CustomSummaryComp from '@/components/mine/CustomSummary.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
 const authStore = useAuthStore()

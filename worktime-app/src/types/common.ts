@@ -91,7 +91,7 @@ export const CACHE_TTL = {
 export const DEFAULT_SETTINGS = {
   showWorktimeAfterClockout: true,
   timeFormat: TimeFormat.H24 as string,
-  homeCalendarView: CalendarView.TODAY as string,
+  homeCalendarView: CalendarView.MONTH as string,
   defaultInputMode: InputMode.BUTTON as string,
 }
 

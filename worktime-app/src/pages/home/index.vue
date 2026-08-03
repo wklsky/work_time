@@ -106,7 +106,7 @@
     <!-- Zone 4: 工时区 (条件显示) -->
     <view v-if="showWorktimeZone && lastClockOutResult" class="worktime-zone">
       <WorktimeCard :result="lastClockOutResult" />
-      <TodayAccumulated v-if="todaySummary" :summary="todaySummary" />
+      <TodayAccumulatedComp v-if="todaySummary" :summary="todaySummary" />
     </view>
 
     <!-- 日历视图选择弹层 -->
@@ -140,7 +140,7 @@ import MonthView from '@/components/home/MonthView.vue'
 import WeekView from '@/components/home/WeekView.vue'
 import TodayView from '@/components/home/TodayView.vue'
 import WorktimeCard from '@/components/home/WorktimeCard.vue'
-import TodayAccumulated from '@/components/home/TodayAccumulated.vue'
+import TodayAccumulatedComp from '@/components/home/TodayAccumulated.vue'
 
 const settingsStore = useSettingsStore()
 
@@ -304,15 +304,20 @@ async function handleManualSubmit() {
   crossDayWarning.value = !!validation.crossDay
 
   try {
-    const clockIn = new Date().toISOString().split('T')[0] + 'T' + manualStartTime.value + ':00Z'
+    // 手动录入：picker 返回的是用户本地时刻。按本地时区构造后转成 UTC ISO（带真 Z）提交，
+    // 后端按 UTC 偏移解析存储，配合显示链 dayjs.utc().tz('Asia/Shanghai') 才能还原为本地时刻，避免 8 小时错位
+    const toUtcIso = (dateStr: string, timeStr: string): string => {
+      const [y, m, d] = dateStr.split('-').map(Number)
+      const [hh, mm] = timeStr.split(':').map(Number)
+      return new Date(y, m - 1, d, hh, mm, 0).toISOString()
+    }
+    const todayStr = getTodayDateString()
+    const clockIn = toUtcIso(todayStr, manualStartTime.value)
     let clockOut: string | undefined
     if (manualEndTime.value) {
-      clockOut = new Date().toISOString().split('T')[0] + 'T' + manualEndTime.value + ':00Z'
-      // Cross-day: use next day for clockOut
-      if (validation.crossDay) {
-        const nextDay = addDays(getTodayDateString(), 1)
-        clockOut = nextDay + 'T' + manualEndTime.value + ':00Z'
-      }
+      // 跨天时结束日期取次日，begin/end 在同一 UTC 轴上自洽
+      const outDateStr = validation.crossDay ? addDays(todayStr, 1) : todayStr
+      clockOut = toUtcIso(outDateStr, manualEndTime.value)
     }
 
     const result = await attendanceApi.manualRecord({
@@ -366,6 +371,19 @@ function switchInputMode(mode: 'BUTTON' | 'MANUAL') {
   inputMode.value = mode
 }
 
+// 手动模式：picker 选中时间后回写，否则 manualStartTime/manualEndTime 始终为空，表现为无法输入
+function onManualStartChange(e: { detail: { value: string } }) {
+  manualStartTime.value = e.detail.value
+}
+
+function onManualEndChange(e: { detail: { value: string } }) {
+  manualEndTime.value = e.detail.value
+  // 结束时间早于开始时间时提示跨天，交由提交时统一校验
+  crossDayWarning.value = !!manualStartTime.value &&
+    !!manualEndTime.value &&
+    manualEndTime.value < manualStartTime.value
+}
+
 // ========== Calendar Navigation ==========
 function calendarPrev() {
   if (calendarView.value === 'MONTH') {
@@ -373,7 +391,9 @@ function calendarPrev() {
     monthYear.value = prev.year
     monthMonth.value = prev.month
   } else if (calendarView.value === 'WEEK') {
-    todayDate.value = subDays(weekStart.value, 7)
+    // 首切到周视图时 weekStart 可能为空，需回退到 todayDate 计算基准，避免 Invalid Date
+    const base = weekStart.value || todayDate.value
+    todayDate.value = subDays(base, 7)
   }
   fetchCalendarData()
 }
@@ -384,7 +404,8 @@ function calendarNext() {
     monthYear.value = next.year
     monthMonth.value = next.month
   } else if (calendarView.value === 'WEEK') {
-    todayDate.value = addDays(weekStart.value, 14)
+    const base = weekStart.value || todayDate.value
+    todayDate.value = addDays(base, 7)
   }
   fetchCalendarData()
 }

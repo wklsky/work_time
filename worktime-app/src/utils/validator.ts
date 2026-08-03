@@ -41,24 +41,43 @@ export function validateUsername(username: string): ValidationResult {
 }
 
 /**
+ * 校验纯时间字符串 "HH:mm" 是否为合法时刻（picker mode=time 的返回形态）
+ */
+function parseTimeOnly(time: string): { hour: number; minute: number } | null {
+  // 兼容完整日期串：仅取末尾的 "HH:mm" 部分（后端 clockIn 在提交时拼成完整 ISO）
+  const match = time.match(/(\d{1,2}):(\d{2})/)
+  if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
+  return { hour, minute }
+}
+
+/**
  * 验证手动录入时间
+ * 注意：手动模式下 picker 返回的是 "HH:mm" 纯时刻串，必须用时刻解析而非 new Date()，
+ * 否则 new Date("09:30") 解析为 Invalid Date，误报"时间格式不正确"
  */
 export function validateManualTime(clockIn: string, clockOut?: string): ValidationResult & { crossDay?: boolean } {
   if (!clockIn) return { valid: false, message: '请输入开始时间' }
 
-  const clockInDate = new Date(clockIn)
-  if (isNaN(clockInDate.getTime())) return { valid: false, message: '开始时间格式不正确' }
+  const inTime = parseTimeOnly(clockIn)
+  if (!inTime) return { valid: false, message: '开始时间格式不正确' }
 
-  // 不允许未来时间
-  if (clockInDate.getTime() > Date.now()) return { valid: false, message: '开始时间不能晚于当前时间' }
+  // 不允许未来时间（以今日该时刻为基准比较，避免跨时区误差）
+  const now = new Date()
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), inTime.hour, inTime.minute)
+  if (startToday.getTime() > Date.now()) return { valid: false, message: '开始时间不能晚于当前时间' }
 
   if (clockOut) {
-    const clockOutDate = new Date(clockOut)
-    if (isNaN(clockOutDate.getTime())) return { valid: false, message: '结束时间格式不正确' }
+    const outTime = parseTimeOnly(clockOut)
+    if (!outTime) return { valid: false, message: '结束时间格式不正确' }
 
-    const diffMinutes = (clockOutDate.getTime() - clockInDate.getTime()) / 60000
+    const inMinutes = inTime.hour * 60 + inTime.minute
+    const outMinutes = outTime.hour * 60 + outTime.minute
+    const diffMinutes = outMinutes - inMinutes
 
-    // 跨天：结束时间小于开始时间
+    // 跨天：结束时刻小于开始时刻
     const isCrossDay = diffMinutes < 0
 
     if (isCrossDay) {

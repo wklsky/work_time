@@ -9,6 +9,13 @@ import { onLaunch, onShow, onHide } from '@dcloudio/uni-app'
 import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 
+// 开发环境下开启 Mock 时，必须提前注册所有 Mock handler，否则请求会命中 "No handler" 分支
+// 注意：此处使用 fire-and-forget 方式注册，不能在 setup 顶层 await，否则 setup 会变成异步函数，
+// 而 App 作为根组件没有 <Suspense> 边界，会触发 Vue 警告并导致组件无法正常渲染
+if (import.meta.env.VITE_USE_MOCK === 'true') {
+  void import('@/mock/index')
+}
+
 const authStore = useAuthStore()
 const settingsStore = useSettingsStore()
 

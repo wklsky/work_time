@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -110,9 +111,10 @@ public class AttendanceService {
      */
     @Transactional
     public Object manualRecord(Long userId, String clockInStr, String clockOutStr, String remark) {
-        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
-        LocalDateTime clockIn = LocalDateTime.parse(clockInStr, fmt);
-        LocalDateTime clockOut = clockOutStr != null ? LocalDateTime.parse(clockOutStr, fmt) : null;
+        // 手动录入时间以 UTC ISO（带 Z）提交，按 UTC 偏移解析为 LocalDateTime，避免本地时区错位
+        DateTimeFormatter fmt = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+        LocalDateTime clockIn = OffsetDateTime.parse(clockInStr, fmt).toLocalDateTime();
+        LocalDateTime clockOut = clockOutStr != null ? OffsetDateTime.parse(clockOutStr, fmt).toLocalDateTime() : null;
 
         WorkRule rule = workRuleMapper.selectDefaultByUserId(userId);
 
@@ -162,9 +164,10 @@ public class AttendanceService {
             throw new BusinessException(ErrorCode.RECORD_NOT_FOUND);
         }
 
-        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
-        if (clockInStr != null) record.setClockIn(LocalDateTime.parse(clockInStr, fmt));
-        if (clockOutStr != null) record.setClockOut(LocalDateTime.parse(clockOutStr, fmt));
+        // 手动录入时间以 UTC ISO（带 Z）提交，按 UTC 偏移解析为 LocalDateTime，避免本地时区错位
+        DateTimeFormatter fmt = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+        if (clockInStr != null) record.setClockIn(OffsetDateTime.parse(clockInStr, fmt).toLocalDateTime());
+        if (clockOutStr != null) record.setClockOut(OffsetDateTime.parse(clockOutStr, fmt).toLocalDateTime());
         if (remark != null) record.setRemark(remark);
 
         // 重算工时
