@@ -5,6 +5,9 @@
  */
 package com.worktime.pro.util
 
+import android.content.Context
+import android.text.format.DateFormat
+import com.worktime.pro.data.datastore.TimeFormatMode
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -22,6 +25,16 @@ object TimeFormatter {
     /** 存储层统一用 24H，展示层才按 timeFormat 转换 */
     fun formatTime(time: LocalTime, use24Hour: Boolean = true): String =
         if (use24Hour) time.format(HOUR_MINUTE) else time.format(HOUR_MINUTE_12)
+
+    /**
+     * 将用户设置的时间制式解析为是否 24 小时制。
+     * 跟随系统时读取系统区域设置，保证与手机其他地方显示一致。
+     */
+    fun use24Hour(context: Context, modeValue: String): Boolean = when (modeValue) {
+        TimeFormatMode.HOUR_24.value -> true
+        TimeFormatMode.HOUR_12.value -> false
+        else -> DateFormat.is24HourFormat(context)
+    }
 
     fun formatDateTime(dateTime: LocalDateTime, use24Hour: Boolean = true): String =
         "${formatDate(dateTime.toLocalDate())} ${formatTime(dateTime.toLocalTime(), use24Hour)}"

@@ -43,4 +43,8 @@ class SettingsViewModel(
     fun setThemeMode(mode: com.worktime.pro.data.datastore.ThemeMode) {
         viewModelScope.launch { settings.setThemeMode(mode.value) }
     }
+
+    fun setTimeFormat(mode: com.worktime.pro.data.datastore.TimeFormatMode) {
+        viewModelScope.launch { settings.setTimeFormat(mode.value) }
+    }
 }

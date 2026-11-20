@@ -43,6 +43,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
 import com.worktime.pro.data.datastore.ThemeMode
+import com.worktime.pro.data.datastore.TimeFormatMode
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.domain.ocr.StatusMapping
 import com.worktime.pro.ui.ViewModelFactory
@@ -104,6 +105,27 @@ fun SettingsScreen(
                             label = { Text(mode.label) }
                         )
                     }
+                }
+
+                Text("时间制式", style = MaterialTheme.typography.bodyMedium)
+                val currentTimeFormat = TimeFormatMode.entries.firstOrNull { it.value == settings.timeFormat }
+                    ?: TimeFormatMode.SYSTEM
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = currentTimeFormat == TimeFormatMode.SYSTEM,
+                        onClick = { viewModel.setTimeFormat(TimeFormatMode.SYSTEM) },
+                        label = { Text("跟随系统") }
+                    )
+                    FilterChip(
+                        selected = currentTimeFormat == TimeFormatMode.HOUR_24,
+                        onClick = { viewModel.setTimeFormat(TimeFormatMode.HOUR_24) },
+                        label = { Text("24 小时") }
+                    )
+                    FilterChip(
+                        selected = currentTimeFormat == TimeFormatMode.HOUR_12,
+                        onClick = { viewModel.setTimeFormat(TimeFormatMode.HOUR_12) },
+                        label = { Text("12 小时") }
+                    )
                 }
 
                 Text("日历每日下方显示", style = MaterialTheme.typography.bodyMedium)
