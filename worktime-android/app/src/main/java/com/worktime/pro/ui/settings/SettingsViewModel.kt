@@ -39,4 +39,8 @@ class SettingsViewModel(
     fun resetStatusMapping() {
         viewModelScope.launch { settings.setStatusMapping("") }
     }
+
+    fun setThemeMode(mode: com.worktime.pro.data.datastore.ThemeMode) {
+        viewModelScope.launch { settings.setThemeMode(mode.value) }
+    }
 }

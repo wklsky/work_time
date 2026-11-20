@@ -42,6 +42,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
+import com.worktime.pro.data.datastore.ThemeMode
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.domain.ocr.StatusMapping
 import com.worktime.pro.ui.ViewModelFactory
@@ -91,6 +92,19 @@ fun SettingsScreen(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("显示设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+                Text("主题", style = MaterialTheme.typography.bodyMedium)
+                val currentTheme = ThemeMode.entries.firstOrNull { it.value == settings.themeMode }
+                    ?: ThemeMode.SYSTEM
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = currentTheme == mode,
+                            onClick = { viewModel.setThemeMode(mode) },
+                            label = { Text(mode.label) }
+                        )
+                    }
+                }
 
                 Text("日历每日下方显示", style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

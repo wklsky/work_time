@@ -42,6 +42,7 @@ class BackupManager(
                 put("ocrAutoFill", settings.ocrAutoFill)
                 put("backupIncludePhotos", settings.backupIncludePhotos)
                 put("statusMapping", settings.statusMapping)
+                put("themeMode", settings.themeMode)
             })
         }
         val dir = File(context.filesDir, Constants.BACKUP_DIR).apply { mkdirs() }
@@ -85,8 +86,11 @@ class BackupManager(
         sessionDao.insertAll(sessions)
         ruleDao.insertAll(rules)
         // 恢复用户自定义状态映射，保证换机/重装后识别规则一致
-        json.optJSONObject("settings")?.optString("statusMapping")?.let {
-            settingsDataStore.setStatusMapping(it)
+        json.optJSONObject("settings")?.let { saved ->
+            saved.optString("statusMapping").let { settingsDataStore.setStatusMapping(it) }
+            saved.optString("themeMode").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setThemeMode(it)
+            }
         }
         Result.success(Unit)
     } catch (e: Exception) {
