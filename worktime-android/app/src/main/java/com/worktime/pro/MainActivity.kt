@@ -31,6 +31,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -89,6 +93,8 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     val currentRoute by navController.currentBackStackEntryAsState()
+                    // 记录最后停留的主 Tab，拍照/手动录入保存后回到来源页
+                    var lastMainTab by remember { mutableStateOf("today") }
                     // 仅三个主 Tab 显示底部导航，进入子页面（拍照/详情/设置等）时隐藏
                     val showBottomBar = currentRoute?.destination?.route in TAB_ROUTES
 
@@ -103,8 +109,9 @@ class MainActivity : ComponentActivity() {
                                         NavigationBarItem(
                                             selected = selected,
                                             onClick = {
+                                                lastMainTab = tab.route
                                                 navController.navigate(tab.route) {
-                                                    // 切换 Tab 时清空中间栈，回退直达首页
+                                                    // 切换 Tab 时清空中间栈，回退直达起始页
                                                     popUpTo(navController.graph.findStartDestination().id) {
                                                         saveState = true
                                                     }
@@ -127,7 +134,11 @@ class MainActivity : ComponentActivity() {
                         }
                     ) { padding ->
                         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                            AppNavHost(navController = navController, factory = factory)
+                            AppNavHost(
+                                navController = navController,
+                                factory = factory,
+                                lastMainTab = lastMainTab
+                            )
                         }
                     }
                 }
@@ -137,16 +148,22 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AppNavHost(navController: NavHostController, factory: ViewModelFactory) {
+private fun AppNavHost(
+    navController: NavHostController,
+    factory: ViewModelFactory,
+    lastMainTab: String
+) {
+    // rememberUpdatedState 保证导航图里的旧 lambda 也能读到最新来源 Tab
+    val originTab by rememberUpdatedState(lastMainTab)
     // 保存后回到进入拍照/手动录入前的主 Tab，避免从今日页跳回首页
     val popToOriginTab: () -> Unit = {
-        if (!navController.popBackStack("today", inclusive = false)) {
-            navController.popBackStack("home", inclusive = false)
+        if (!navController.popBackStack(originTab, inclusive = false)) {
+            navController.popBackStack("today", inclusive = false)
         }
     }
     NavHost(
         navController = navController,
-        startDestination = "home",
+        startDestination = "today",
         enterTransition = {
             fadeIn(tween(200)) + slideInHorizontally(tween(220)) { it / 10 }
         },

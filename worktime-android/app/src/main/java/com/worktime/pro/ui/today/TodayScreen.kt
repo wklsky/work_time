@@ -83,7 +83,7 @@ fun TodayScreen(
 
     var quickType by remember { mutableStateOf(PunchType.WORK_START) }
     var pendingDelete by remember { mutableStateOf<PunchEventEntity?>(null) }
-    // 四类打卡时间独立保存；进入页面时取手机当前时间，用户可用"现在"按钮重新对齐当前时刻
+    // 四类打卡时间独立保存；每次进入页面默认取手机当前时间，避免沿用上次停留时留下的旧值
     val quickTimes = remember {
         mutableStateMapOf<PunchType, LocalTime>().apply {
             PunchType.entries.forEach { put(it, LocalTime.now()) }
@@ -197,33 +197,6 @@ fun TodayScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // 四类打卡时间
-        Text("打卡记录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                PunchType.entries.forEach { type ->
-                    val event = state.events.firstOrNull { it.punchType == type.name }
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(type.label, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                        if (event != null) {
-                            val source = PunchSource.entries.firstOrNull { it.name == event.source }?.label ?: event.source
-                            Text(viewModel.formatTime(event, use24Hour))
-                            Text(" ($source)", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            IconButton(onClick = { pendingDelete = event }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "删除")
-                            }
-                        } else {
-                            Text("未打卡", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
         // 快速打卡：默认取当前时间，用户可滑动微调后一键写入，省去每次都走完整手动录入流程
         Text("快速打卡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
@@ -255,17 +228,10 @@ fun TodayScreen(
                     )
                 }
                 Text(
-                    "每类打卡时间独立保存，点击可滑动调整",
+                    "默认取手机当前时间，每类打卡时间独立保存，点击可滑动调整",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                TextButton(
-                    onClick = {
-                        val now = LocalTime.now()
-                        PunchType.entries.forEach { quickTimes[it] = now }
-                    },
-                    modifier = Modifier.align(Alignment.End)
-                ) { Text("用当前时间") }
 
                 Button(
                     onClick = {
@@ -277,6 +243,33 @@ fun TodayScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("一键打卡") }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // 四类打卡时间
+        Text("打卡记录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                PunchType.entries.forEach { type ->
+                    val event = state.events.firstOrNull { it.punchType == type.name }
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(type.label, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                        if (event != null) {
+                            val source = PunchSource.entries.firstOrNull { it.name == event.source }?.label ?: event.source
+                            Text(viewModel.formatTime(event, use24Hour))
+                            Text(" ($source)", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            IconButton(onClick = { pendingDelete = event }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "删除")
+                            }
+                        } else {
+                            Text("未打卡", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
             }
         }
 
