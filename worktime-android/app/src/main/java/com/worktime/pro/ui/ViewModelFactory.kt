@@ -17,6 +17,7 @@ import com.worktime.pro.ui.manual.ManualViewModel
 import com.worktime.pro.ui.settings.BackupViewModel
 import com.worktime.pro.ui.settings.SettingsViewModel
 import com.worktime.pro.ui.summary.SummaryViewModel
+import com.worktime.pro.ui.today.TodayViewModel
 
 class ViewModelFactory(
     private val repository: WorkTimeRepository,
@@ -42,6 +43,8 @@ class ViewModelFactory(
             SummaryViewModel(repository, settings) as T
         modelClass.isAssignableFrom(BackupViewModel::class.java) ->
             BackupViewModel(backupManager, settings) as T
+        modelClass.isAssignableFrom(TodayViewModel::class.java) ->
+            TodayViewModel(repository, settings) as T
         else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
     }
 }

@@ -17,13 +17,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,9 +55,7 @@ fun HomeScreen(
     factory: ViewModelFactory,
     onOpenDay: (String) -> Unit,
     onOpenCamera: () -> Unit,
-    onOpenManual: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenSummary: () -> Unit
+    onOpenManual: () -> Unit
 ) {
     val viewModel: HomeViewModel = viewModel(factory = factory)
     val days by viewModel.days.collectAsState()
@@ -65,22 +63,23 @@ fun HomeScreen(
     val showShade by viewModel.showOvertimeShade.collectAsState()
     val month by viewModel.displayedMonth.collectAsState()
 
-    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // 顶部栏：设置入口
+    // 加垂直滚动：月历 6 行 + 底部操作栏可能超出屏幕，保证拍照/手动入口可达
+    Column(
+        modifier = Modifier.fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+    ) {
+        // 顶部标题：设置与统计入口已移至「我的」页
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("工时助手", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Row {
-                IconButton(onClick = onOpenSummary) {
-                    Icon(Icons.Filled.BarChart, contentDescription = "统计")
-                }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "设置")
-                }
-            }
+            Text(
+                "工时助手",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
 
         // 月份切换
@@ -183,7 +182,7 @@ private fun DayCell(
 
     Column(
         modifier = modifier
-            .aspectRatio(0.72f)
+            .aspectRatio(0.9f)
             .padding(2.dp)
             .clip(MaterialTheme.shapes.small)
             .background(cellBackground)
