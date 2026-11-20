@@ -250,16 +250,24 @@ fun DayDetailScreen(
             onDismiss = { editingTarget = null },
             onConfirm = { time ->
                 val event = target.event
-                if (event != null) {
-                    viewModel.updateEventTime(event, time) {
-                        Toast.makeText(context, "${target.type.label}时间已更新", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    viewModel.addEvent(target.type, time) {
-                        Toast.makeText(context, "${target.type.label}打卡已补录", Toast.LENGTH_SHORT).show()
+                val onResult: (String?) -> Unit = { error ->
+                    if (error != null) {
+                        Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                    } else {
+                        val message = if (event != null) {
+                            "${target.type.label}时间已更新"
+                        } else {
+                            "${target.type.label}打卡已补录"
+                        }
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        editingTarget = null
                     }
                 }
-                editingTarget = null
+                if (event != null) {
+                    viewModel.updateEventTime(event, time, onResult)
+                } else {
+                    viewModel.addEvent(target.type, time, onResult)
+                }
             }
         )
     }

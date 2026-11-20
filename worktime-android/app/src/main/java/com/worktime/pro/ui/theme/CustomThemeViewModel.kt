@@ -6,9 +6,11 @@
 package com.worktime.pro.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.worktime.pro.data.datastore.SettingsDataStore
+import com.worktime.pro.data.datastore.ThemeMode
 import com.worktime.pro.util.ColorContrast
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,7 +69,8 @@ class CustomThemeViewModel(
     init {
         viewModelScope.launch {
             val saved = settings.settings.first()
-            _state.value = CustomThemeUiState(
+            // 用 copy 保留页面已经选择的编辑模式，避免异步加载把它重置回浅色
+            _state.value = _state.value.copy(
                 enabled = saved.customThemeEnabled,
                 light = CustomPalette.deserialize(saved.customLightColors)
                     ?: CustomPalette.defaultLight(),
@@ -87,13 +90,21 @@ class CustomThemeViewModel(
         _state.value = _state.value.copy(editDark = dark)
     }
 
+    /** 把应用主题切到当前编辑的浅色/深色，便于立即看到修改效果 */
+    fun applyEditingModeToApp() {
+        val mode = if (_state.value.editDark) ThemeMode.DARK else ThemeMode.LIGHT
+        viewModelScope.launch { settings.setThemeMode(mode.value) }
+    }
+
     fun applyPreset(preset: PalettePreset) {
         _state.value = _state.value.copy(
+            enabled = true,
             light = preset.light,
             dark = preset.dark,
             message = "已应用「${preset.name}」"
         )
         viewModelScope.launch {
+            settings.setCustomThemeEnabled(true)
             settings.setCustomLightColors(preset.light.serialize())
             settings.setCustomDarkColors(preset.dark.serialize())
         }
@@ -105,29 +116,53 @@ class CustomThemeViewModel(
         val primaryContrast = ColorContrast.ratio(updated.textPrimary, updated.background)
         val secondaryContrast = ColorContrast.ratio(updated.textSecondary, updated.background)
         val surfaceContrast = ColorContrast.ratio(updated.textPrimary, updated.surface)
-        if (primaryContrast < 3f || secondaryContrast < 3f || surfaceContrast < 3f) {
-            val reason = when {
-                primaryContrast < 3f -> "正文与页面背景"
-                secondaryContrast < 3f -> "次要文字与页面背景"
-                else -> "正文与卡片表面"
-            }
-            _state.value = current.copy(
-                message = "${reason}对比度过低，文字会难以辨认，已取消本次修改"
-            )
-            return
-        }
         val warning = when {
-            primaryContrast < 4.5f -> "提示：正文与页面背景对比度低于 4.5:1"
-            secondaryContrast < 4.5f -> "提示：次要文字与页面背景对比度低于 4.5:1"
-            surfaceContrast < 4.5f -> "提示：正文与卡片表面对比度低于 4.5:1"
+            primaryContrast < 3f -> "已应用，但正文与页面背景对比度过低，建议调整文字或背景"
+            secondaryContrast < 3f -> "已应用，但次要文字与页面背景对比度过低"
+            surfaceContrast < 3f -> "已应用，但正文与卡片表面对比度过低"
+            primaryContrast < 4.5f -> "已应用；正文与页面背景对比度低于 4.5:1"
+            secondaryContrast < 4.5f -> "已应用；次要文字与页面背景对比度低于 4.5:1"
+            surfaceContrast < 4.5f -> "已应用；正文与卡片表面对比度低于 4.5:1"
             else -> null
         }
+        // 修改颜色即自动启用，避免“改了颜色但界面没变化”
         _state.value = current.copy(
+            enabled = true,
             light = if (current.editDark) current.light else updated,
             dark = if (current.editDark) updated else current.dark,
             message = warning
         )
         persist(current.editDark, updated)
+        viewModelScope.launch { settings.setCustomThemeEnabled(true) }
+    }
+
+    /** 根据背景亮度自动选择正文/次要文字颜色，快速修复低对比度配色 */
+    fun autoAdaptTextColors() {
+        val current = _state.value
+        val palette = current.palette
+        val primary = ColorContrast.on(palette.background)
+        var secondary = lerp(primary, palette.background, 0.42f)
+        if (
+            ColorContrast.ratio(secondary, palette.background) < 4.5f ||
+            ColorContrast.ratio(secondary, palette.surface) < 4.5f
+        ) {
+            secondary = lerp(primary, palette.background, 0.30f)
+        }
+        if (
+            ColorContrast.ratio(secondary, palette.background) < 4.5f ||
+            ColorContrast.ratio(secondary, palette.surface) < 4.5f
+        ) {
+            secondary = primary
+        }
+        val updated = palette.copy(textPrimary = primary, textSecondary = secondary)
+        _state.value = current.copy(
+            enabled = true,
+            light = if (current.editDark) current.light else updated,
+            dark = if (current.editDark) updated else current.dark,
+            message = "已自动适配文字颜色"
+        )
+        persist(current.editDark, updated)
+        viewModelScope.launch { settings.setCustomThemeEnabled(true) }
     }
 
     /** 只恢复当前颜色的默认值，保留同模式其他自定义色 */

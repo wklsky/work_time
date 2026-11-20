@@ -141,6 +141,13 @@ fun TodayScreen(
     val manualQuickTimes = remember { mutableStateMapOf<PunchType, LocalTime>() }
     val quickTime = manualQuickTimes[quickType] ?: currentMinute
     var showQuickTimePicker by remember { mutableStateOf(false) }
+    // 当前状态只允许闭合正在进行的段，或开启新的上班/加班段
+    val allowedQuickTypes = remember(state.events) { allowedQuickTypesFor(state.events) }
+    LaunchedEffect(allowedQuickTypes) {
+        if (quickType !in allowedQuickTypes) {
+            quickType = allowedQuickTypes.first()
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
@@ -208,10 +215,10 @@ fun TodayScreen(
                 if (actionType != null) {
                     Button(
                         onClick = {
-                            viewModel.quickPunch(actionType, LocalTime.now()) {
+                            viewModel.quickPunch(actionType, LocalTime.now()) { error ->
                                 Toast.makeText(
                                     context,
-                                    "${actionType.label}打卡成功",
+                                    error ?: "${actionType.label}打卡成功",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -247,10 +254,23 @@ fun TodayScreen(
                         FilterChip(
                             selected = quickType == type,
                             onClick = { quickType = type },
+                            enabled = type in allowedQuickTypes,
                             label = { Text(type.label) }
                         )
                     }
                 }
+                Text(
+                    when {
+                        allowedQuickTypes == setOf(PunchType.WORK_END) ->
+                            "上班段尚未结束，只能打下班卡"
+                        allowedQuickTypes == setOf(PunchType.OT_END) ->
+                            "加班段尚未结束，只能打加班退卡"
+                        else ->
+                            "没有进行中的班段，可开始上班或加班"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
                 // 时间行点击弹出滑动 TimePicker，制式跟随用户设置
                 Row(
@@ -269,11 +289,16 @@ fun TodayScreen(
                     onClick = {
                         val type = quickType
                         val time = quickTime
-                        viewModel.quickPunch(type, time) {
-                            Toast.makeText(context, "${type.label}打卡成功", Toast.LENGTH_SHORT).show()
+                        viewModel.quickPunch(type, time) { error ->
+                            Toast.makeText(
+                                context,
+                                error ?: "${type.label}打卡成功",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = quickType in allowedQuickTypes
                 ) { Text("一键打卡") }
             }
         }
@@ -452,6 +477,22 @@ private fun formatClock(totalSeconds: Long): String {
         ((safe % 3600) / 60).toInt(),
         (safe % 60).toInt()
     )
+}
+
+/** 当前状态下允许的快速打卡类型：开放段只能被对应的结束卡关闭 */
+private fun allowedQuickTypesFor(events: List<PunchEventEntity>): Set<PunchType> {
+    fun latest(type: PunchType) = events.lastOrNull { it.punchType == type.name }
+    val workStart = latest(PunchType.WORK_START)
+    val workEnd = latest(PunchType.WORK_END)
+    val otStart = latest(PunchType.OT_START)
+    val otEnd = latest(PunchType.OT_END)
+    val workOpen = workStart != null && (workEnd == null || workStart.punchTime > workEnd.punchTime)
+    val otOpen = otStart != null && (otEnd == null || otStart.punchTime > otEnd.punchTime)
+    return when {
+        workOpen -> setOf(PunchType.WORK_END)
+        otOpen -> setOf(PunchType.OT_END)
+        else -> setOf(PunchType.WORK_START, PunchType.OT_START)
+    }
 }
 
 /** 由四类打卡事件推导工作状态与下一步动作；多段时以最近一段是否闭合为准 */

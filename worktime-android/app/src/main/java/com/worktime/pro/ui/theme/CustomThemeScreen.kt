@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +55,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.worktime.pro.data.datastore.AppSettings
+import com.worktime.pro.data.datastore.ThemeMode
+import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.ui.components.ColorPickerDialog
 import com.worktime.pro.util.ColorContrast
@@ -69,7 +73,23 @@ fun CustomThemeScreen(
     val viewModel: CustomThemeViewModel = viewModel(factory = factory)
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val appSettings by LocalSettings.current.settings.collectAsState(initial = AppSettings())
+    val systemDark = isSystemInDarkTheme()
+    val isBlackWhite = appSettings.themeMode == ThemeMode.BLACK_WHITE.value
+    val appUsesDark = appSettings.themeMode == ThemeMode.DARK.value ||
+        isBlackWhite ||
+        (appSettings.themeMode == ThemeMode.SYSTEM.value && systemDark)
+    val appModeLabel = when {
+        isBlackWhite -> "黑白"
+        appUsesDark -> "深色"
+        else -> "浅色"
+    }
     var pickingSlot by remember { mutableStateOf<PaletteSlot?>(null) }
+
+    // 默认编辑当前生效的浅色/深色配色，避免用户改了另一套却看不到变化
+    LaunchedEffect(appUsesDark) {
+        viewModel.setEditDark(appUsesDark)
+    }
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -99,6 +119,35 @@ fun CustomThemeScreen(
             TextButton(onClick = onBack) { Text("完成") }
         }
 
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "当前应用：$appModeLabel",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (state.enabled) "自定义已启用" else "自定义未启用",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (state.enabled) {
+                    MaterialTheme.colorScheme.secondary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+        if (isBlackWhite) {
+            Text(
+                "当前为黑白主题，自定义配色不会生效；请先在设置 → 主题切换到浅色或深色。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+            TextButton(onClick = viewModel::applyEditingModeToApp) {
+                Text("切换到${if (state.editDark) "深色" else "浅色"}主题")
+            }
+        }
+
         Spacer(Modifier.height(16.dp))
 
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -110,7 +159,7 @@ fun CustomThemeScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("启用自定义配色", fontWeight = FontWeight.Medium)
                         Text(
-                            "黑白模式保持独立，不受自定义影响",
+                            "修改颜色会自动启用；黑白模式保持独立",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -123,7 +172,7 @@ fun CustomThemeScreen(
 
                 if (!state.enabled) {
                     Text(
-                        "下面的配色会保存，但需开启上方开关后才会应用到界面",
+                        "修改任意颜色或应用预设会自动启用，也可以手动打开上方开关",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary
                     )
@@ -140,6 +189,26 @@ fun CustomThemeScreen(
                         onClick = { viewModel.setEditDark(true) },
                         label = { Text("深色") }
                     )
+                }
+
+                val editingMatchesApp = state.editDark == appUsesDark
+                Text(
+                    if (editingMatchesApp) {
+                        "正在编辑当前生效的${if (state.editDark) "深色" else "浅色"}配色"
+                    } else {
+                        "正在编辑${if (state.editDark) "深色" else "浅色"}配色；应用当前为$appModeLabel，切换到对应主题后才可见"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (editingMatchesApp) {
+                        MaterialTheme.colorScheme.secondary
+                    } else {
+                        MaterialTheme.colorScheme.tertiary
+                    }
+                )
+                if (!editingMatchesApp) {
+                    TextButton(onClick = viewModel::applyEditingModeToApp) {
+                        Text("切换到${if (state.editDark) "深色" else "浅色"}主题")
+                    }
                 }
 
                 Text("预设", style = MaterialTheme.typography.bodySmall,
@@ -302,10 +371,18 @@ fun CustomThemeScreen(
                     ColorContrast.ratio(palette.textPrimary, palette.surface)
                 )
                 Text(
-                    "建议 ≥ 4.5:1；低于 3:1 的修改会被阻止",
+                    "建议 ≥ 4.5:1；偏低时可用下方按钮快速修正",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = viewModel::autoAdaptTextColors) {
+                        Text("自动适配文字颜色")
+                    }
+                }
             }
         }
 

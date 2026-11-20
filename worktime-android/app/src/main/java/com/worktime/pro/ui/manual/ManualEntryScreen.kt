@@ -140,7 +140,15 @@ fun ManualEntryScreen(
         Spacer(Modifier.height(16.dp))
 
         Button(
-            onClick = { viewModel.save(date, selectedType, time, onSaved) },
+            onClick = {
+                viewModel.save(date, selectedType, time) { error ->
+                    if (error != null) {
+                        Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                    } else {
+                        onSaved()
+                    }
+                }
+            },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("保存")

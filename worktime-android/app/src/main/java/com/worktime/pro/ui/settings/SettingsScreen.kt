@@ -248,9 +248,21 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("自定义配色", style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            "品牌色、工时色、加班色与文字颜色",
+                            when {
+                                currentTheme == ThemeMode.BLACK_WHITE && settings.customThemeEnabled ->
+                                    "已启用，但黑白模式不使用自定义配色"
+                                settings.customThemeEnabled ->
+                                    "已启用 · 品牌色、工时色、加班色与文字颜色"
+                                else ->
+                                    "未启用 · 修改颜色会自动启用"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = when {
+                                currentTheme == ThemeMode.BLACK_WHITE && settings.customThemeEnabled ->
+                                    MaterialTheme.colorScheme.tertiary
+                                settings.customThemeEnabled -> MaterialTheme.colorScheme.secondary
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                     }
                     val editingDark = settings.themeMode == ThemeMode.DARK.value ||

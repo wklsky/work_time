@@ -276,10 +276,10 @@ fun HomeScreen(
                             if (todayEventCount > 0) {
                                 pendingHabit = habit
                             } else {
-                                viewModel.applyHabit(habit, overwrite = false) {
+                                viewModel.applyHabit(habit, overwrite = false) { error ->
                                     Toast.makeText(
                                         context,
-                                        "已应用「${habit.name}」",
+                                        error ?: "已应用「${habit.name}」",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -317,8 +317,12 @@ fun HomeScreen(
                         "今天已有打卡记录。追加会保留现有记录并写入习惯时间；覆盖会先清空今天记录，再写入习惯时间。"
                     )
                     TextButton(onClick = {
-                        viewModel.applyHabit(habit, overwrite = true) {
-                            Toast.makeText(context, "已覆盖应用「${habit.name}」", Toast.LENGTH_SHORT).show()
+                        viewModel.applyHabit(habit, overwrite = true) { error ->
+                            Toast.makeText(
+                                context,
+                                error ?: "已覆盖应用「${habit.name}」",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                         pendingHabit = null
                     }) {
@@ -328,8 +332,12 @@ fun HomeScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.applyHabit(habit, overwrite = false) {
-                        Toast.makeText(context, "已追加应用「${habit.name}」", Toast.LENGTH_SHORT).show()
+                    viewModel.applyHabit(habit, overwrite = false) { error ->
+                        Toast.makeText(
+                            context,
+                            error ?: "已追加应用「${habit.name}」",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                     pendingHabit = null
                 }) { Text("追加应用") }

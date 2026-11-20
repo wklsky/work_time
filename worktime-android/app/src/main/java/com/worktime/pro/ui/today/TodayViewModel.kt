@@ -97,11 +97,11 @@ class TodayViewModel(
      * 业务说明：来源统一记为 MANUAL，与手动录入保持一致，便于统计时区分 OCR 识别与人工补录；
      * 写入后由 Repository 自动重算当日工时段，今日页与首页日历通过 Flow 自动刷新。
      */
-    fun quickPunch(type: PunchType, time: LocalTime, onDone: () -> Unit) {
+    fun quickPunch(type: PunchType, time: LocalTime, onResult: (String?) -> Unit) {
         viewModelScope.launch {
             // 以点击瞬间的日期为准，避免 ViewModel 构造时快照导致的跨零点写错日期
             val date = LocalDate.now()
-            repository.addPunch(
+            val result = repository.addPunch(
                 PunchInput(
                     workDate = TimeFormatter.formatDateKey(date),
                     punchType = type,
@@ -109,7 +109,7 @@ class TodayViewModel(
                     source = PunchSource.MANUAL
                 )
             )
-            onDone()
+            onResult(result.exceptionOrNull()?.message)
         }
     }
 

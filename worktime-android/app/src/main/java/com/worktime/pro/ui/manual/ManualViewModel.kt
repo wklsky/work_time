@@ -23,10 +23,15 @@ class ManualViewModel(
     @Suppress("UNUSED_PARAMETER") settings: SettingsDataStore
 ) : ViewModel() {
 
-    /** 保存一条手动打卡，写入后由 Repository 自动重算工时 */
-    fun save(date: LocalDate, type: PunchType, time: LocalTime, onDone: () -> Unit) {
+    /** 保存一条手动打卡；时间线冲突时返回错误信息，不写入数据 */
+    fun save(
+        date: LocalDate,
+        type: PunchType,
+        time: LocalTime,
+        onResult: (String?) -> Unit
+    ) {
         viewModelScope.launch {
-            repository.addPunch(
+            val result = repository.addPunch(
                 PunchInput(
                     workDate = TimeFormatter.formatDateKey(date),
                     punchType = type,
@@ -34,7 +39,7 @@ class ManualViewModel(
                     source = PunchSource.MANUAL
                 )
             )
-            onDone()
+            onResult(result.exceptionOrNull()?.message)
         }
     }
 }

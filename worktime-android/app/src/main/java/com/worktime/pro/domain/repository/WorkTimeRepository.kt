@@ -13,7 +13,9 @@ import com.worktime.pro.data.db.WorkRuleDao
 import com.worktime.pro.data.db.WorkSessionDao
 import com.worktime.pro.data.db.WorkSessionEntity
 import com.worktime.pro.data.db.toDayTotals
+import com.worktime.pro.domain.engine.PunchMoment
 import com.worktime.pro.domain.engine.PunchPairing
+import com.worktime.pro.domain.engine.PunchTimelineValidator
 import com.worktime.pro.domain.engine.WorkTimeCalculator
 import com.worktime.pro.domain.engine.WorkRuleConfig
 import com.worktime.pro.domain.model.Confidence
@@ -24,6 +26,8 @@ import com.worktime.pro.util.Constants
 import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDateTime
 import java.time.LocalTime
 
@@ -45,6 +49,9 @@ class WorkTimeRepository(
     private val ruleDao: WorkRuleDao,
     private val calculator: WorkTimeCalculator = WorkTimeCalculator()
 ) {
+    /** 串行化“校验 + 写入 + 重算”，避免双击/并发写入绕过时间线校验 */
+    private val writeMutex = Mutex()
+
     fun observeEvents(date: String): Flow<List<PunchEventEntity>> = punchDao.getByDate(date)
 
     fun observeSessions(date: String): Flow<List<WorkSessionEntity>> = sessionDao.getByDate(date)
@@ -79,25 +86,70 @@ class WorkTimeRepository(
 
     /**
      * 新增一条打卡并立即重算当日工时段。
-     * 业务规则：一天可以有多段上下班/加班段，同类型打卡按时间追加；
-     * 编辑已有记录必须走 updatePunch，避免误改其他段。
+     * 业务规则：一天可以有多段上下班/加班段，但上班与加班、同类段之间不可重叠；
+     * 校验不通过时返回失败，不写入任何数据。
      */
-    suspend fun addPunch(input: PunchInput): Long {
-        val id = insertEvent(input)
-        recalculate(input.workDate)
-        return id
+    suspend fun addPunch(input: PunchInput): Result<Long> = writeMutex.withLock {
+        runCatching {
+            validateDay(input.workDate, listOf(input.toMoment()))
+                ?.let { throw IllegalArgumentException(it) }
+            val id = insertEvent(input)
+            recalculate(input.workDate)
+            id
+        }
     }
 
     /**
      * 批量追加打卡并按日期各重算一次。
-     * 业务说明：习惯打卡含多条固定时间，逐条 addPunch 会重复重算；
-     * OCR 识别也可能跨日期，因此按 workDate 分组重算。
+     * 业务说明：先校验所有日期，再统一写入，避免部分数据已落库。
      */
-    suspend fun addPunches(inputs: List<PunchInput>) {
-        if (inputs.isEmpty()) return
-        inputs.forEach { insertEvent(it) }
-        inputs.map { it.workDate }.distinct().forEach { recalculate(it) }
+    suspend fun addPunches(inputs: List<PunchInput>): Result<Unit> = writeMutex.withLock {
+        runCatching {
+            if (inputs.isEmpty()) return@runCatching
+            val byDate = inputs.groupBy { it.workDate }
+            byDate.forEach { (date, dayInputs) ->
+                validateDay(date, dayInputs.map { it.toMoment() })
+                    ?.let { throw IllegalArgumentException(it) }
+            }
+            inputs.forEach { insertEvent(it) }
+            byDate.keys.forEach { recalculate(it) }
+        }
     }
+
+    /** 修改已有打卡时间；同样走时间线校验，避免编辑后与其他段重叠 */
+    suspend fun updatePunch(event: PunchEventEntity): Result<Unit> = writeMutex.withLock {
+        runCatching {
+            val type = PunchType.entries.firstOrNull { it.name == event.punchType }
+                ?: throw IllegalArgumentException("未知打卡类型")
+            validateDay(
+                date = event.workDate,
+                newMoments = listOf(PunchMoment(type, event.punchTime)),
+                excludeEventId = event.id
+            )?.let { throw IllegalArgumentException(it) }
+            punchDao.update(event.copy(updateTime = System.currentTimeMillis()))
+            recalculate(event.workDate)
+        }
+    }
+
+    private suspend fun validateDay(
+        date: String,
+        newMoments: List<PunchMoment>,
+        excludeEventId: Long? = null
+    ): String? {
+        val existing = punchDao.getByDateOnce(date)
+            .filter { excludeEventId == null || it.id != excludeEventId }
+            .mapNotNull { event ->
+                val type = PunchType.entries.firstOrNull { it.name == event.punchType }
+                    ?: return@mapNotNull null
+                PunchMoment(type, event.punchTime)
+            }
+        return PunchTimelineValidator.validate(existing + newMoments)
+    }
+
+    private fun PunchInput.toMoment() = PunchMoment(
+        type = punchType,
+        time = punchTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+    )
 
     private suspend fun insertEvent(input: PunchInput): Long {
         val now = System.currentTimeMillis()
@@ -117,12 +169,7 @@ class WorkTimeRepository(
         )
     }
 
-    suspend fun updatePunch(event: PunchEventEntity) {
-        punchDao.update(event.copy(updateTime = System.currentTimeMillis()))
-        recalculate(event.workDate)
-    }
-
-    suspend fun deletePunch(event: PunchEventEntity) {
+    suspend fun deletePunch(event: PunchEventEntity) = writeMutex.withLock {
         punchDao.delete(event)
         recalculate(event.workDate)
     }
@@ -159,10 +206,10 @@ class WorkTimeRepository(
     }
 
     /** 按当前规则重算全部有打卡记录的日期，返回重算天数 */
-    suspend fun recalculateAll(): Int {
+    suspend fun recalculateAll(): Int = writeMutex.withLock {
         val dates = punchDao.getDatesInRange("0000-01-01", "9999-12-31")
         dates.forEach { recalculate(it) }
-        return dates.size
+        dates.size
     }
 
     /**

@@ -213,7 +213,7 @@ fun ConfirmScreen(
 
         state.error?.let { error ->
             Text(error, color = MaterialTheme.colorScheme.error)
-            Button(onClick = viewModel::clearError) { Text("重试") }
+            Button(onClick = viewModel::clearError) { Text("关闭") }
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {

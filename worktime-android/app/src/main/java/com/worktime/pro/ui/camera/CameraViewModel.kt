@@ -130,7 +130,16 @@ class CameraViewModel(
                     confidence = candidate.confidence
                 )
             }
-            inputs.groupBy { it.workDate }.values.forEach { repository.addPunches(it) }
+            // 先校验所有日期的时间线，冲突时不写入任何数据
+            val saveResult = runCatching {
+                repository.addPunches(inputs).getOrThrow()
+            }
+            if (saveResult.isFailure) {
+                _confirmState.value = _confirmState.value.copy(
+                    error = saveResult.exceptionOrNull()?.message ?: "保存失败，请检查打卡时间"
+                )
+                return@launch
+            }
 
             // 确认保存后才写相册，避免用户重拍时产生垃圾照片
             val galleryEnabled = runCatching {

@@ -14,6 +14,8 @@ import com.worktime.pro.data.db.DayAggregate
 import com.worktime.pro.data.db.DayPunchCounts
 import com.worktime.pro.domain.model.PunchSource
 import com.worktime.pro.domain.model.PunchType
+import com.worktime.pro.domain.engine.PunchMoment
+import com.worktime.pro.domain.engine.PunchTimelineValidator
 import com.worktime.pro.domain.repository.PunchInput
 import com.worktime.pro.domain.repository.WorkTimeRepository
 import com.worktime.pro.util.DateTicker
@@ -126,14 +128,11 @@ class HomeViewModel(
      * 应用习惯到今天：把习惯里的固定时间批量写入。
      * overwrite=true 时先清空当天记录再写入，用于用户确认替换的场景；来源记为 MANUAL。
      */
-    fun applyHabit(habit: PunchHabit, overwrite: Boolean, onDone: () -> Unit) {
+    fun applyHabit(habit: PunchHabit, overwrite: Boolean, onResult: (String?) -> Unit) {
         viewModelScope.launch {
             // 以点击瞬间的日期为准，避免跨零点写入昨天
             val today = LocalDate.now()
             val todayKey = TimeFormatter.formatDateKey(today)
-            if (overwrite) {
-                repository.observeEvents(todayKey).first().forEach { repository.deletePunch(it) }
-            }
             val inputs = habit.times.mapNotNull { (typeName, timeValue) ->
                 runCatching {
                     PunchInput(
@@ -145,8 +144,24 @@ class HomeViewModel(
                     )
                 }.getOrNull()
             }
-            repository.addPunches(inputs)
-            onDone()
+            // 先校验习惯本身，避免覆盖时先删数据再失败
+            val moments = inputs.map {
+                PunchMoment(
+                    type = it.punchType,
+                    time = it.punchTime.atZone(java.time.ZoneId.systemDefault())
+                        .toInstant().toEpochMilli()
+                )
+            }
+            val validation = PunchTimelineValidator.validate(moments)
+            if (validation != null) {
+                onResult(validation)
+                return@launch
+            }
+            if (overwrite) {
+                repository.observeEvents(todayKey).first().forEach { repository.deletePunch(it) }
+            }
+            val result = repository.addPunches(inputs)
+            onResult(result.exceptionOrNull()?.message)
         }
     }
 
