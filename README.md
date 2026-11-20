@@ -30,14 +30,14 @@ f:/MyApplication/work_time/
         └── test/                    # 单元测试（22 个用例）
 ```
 
-> 旧版云端架构（Vue 前端 + Spring Boot 后端）已移除。当前处于 V2.0 开发阶段一~四：数据层、工时引擎、OCR 识别链路与核心界面已完成，统计汇总/报表/备份待后续阶段实现。
+> 旧版云端架构（Vue 前端 + Spring Boot 后端）已移除。V2.0 核心功能已完成：数据层、工时引擎、OCR 识别、日历界面、统计汇总、报表导出、数据备份。
 
 ## 构建与测试
 
 ```bash
 cd worktime-android
 
-# 运行单元测试（工时引擎 14 项 + OCR 抽取 8 项）
+# 运行单元测试（工时引擎 14 + OCR 8 + 汇总 9，共 31 项）
 gradlew.bat :app:testDebugUnitTest
 
 # 构建 Debug APK（输出：app/build/outputs/apk/debug/app-debug.apk）
