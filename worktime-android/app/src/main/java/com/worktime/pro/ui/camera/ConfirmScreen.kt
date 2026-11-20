@@ -50,6 +50,10 @@ fun ConfirmScreen(
     val viewModel: CameraViewModel = viewModel(factory = factory)
     val state by viewModel.confirmState.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val settings by com.worktime.pro.ui.LocalSettings.current.settings.collectAsState(
+        initial = com.worktime.pro.data.datastore.AppSettings()
+    )
+    val use24Hour = com.worktime.pro.util.TimeFormatter.use24Hour(context, settings.timeFormat)
 
     // 进入页面后自动识别暂存的照片；仅触发一次，避免重组时重复识别
     LaunchedEffect(Unit) {
@@ -113,10 +117,10 @@ fun ConfirmScreen(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("日期：$date")
-                TimeField("上班", workStart) { workStart = it }
-                TimeField("下班", workEnd) { workEnd = it }
-                TimeField("加班到", otStart) { otStart = it }
-                TimeField("加班退", otEnd) { otEnd = it }
+                TimeField("上班", workStart, use24Hour) { workStart = it }
+                TimeField("下班", workEnd, use24Hour) { workEnd = it }
+                TimeField("加班到", otStart, use24Hour) { otStart = it }
+                TimeField("加班退", otEnd, use24Hour) { otEnd = it }
             }
         }
 
@@ -148,7 +152,7 @@ fun ConfirmScreen(
 /** 时间输入行：点击弹出 Material3 时间选择器，支持用户修正 OCR 结果或补填未识别时间 */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeField(label: String, time: LocalTime?, onTimeChange: (LocalTime?) -> Unit) {
+private fun TimeField(label: String, time: LocalTime?, use24Hour: Boolean, onTimeChange: (LocalTime?) -> Unit) {
     var showPicker by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -157,7 +161,9 @@ private fun TimeField(label: String, time: LocalTime?, onTimeChange: (LocalTime?
         Text(label, modifier = Modifier.weight(1f))
         androidx.compose.material3.TextButton(onClick = { showPicker = true }) {
             Text(
-                text = time?.let { "%02d:%02d".format(it.hour, it.minute) } ?: "点击设置时间",
+                text = time?.let {
+                    com.worktime.pro.util.TimeFormatter.formatTime(it, use24Hour)
+                } ?: "点击设置时间",
                 color = if (time != null) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -169,7 +175,7 @@ private fun TimeField(label: String, time: LocalTime?, onTimeChange: (LocalTime?
         val pickerState = androidx.compose.material3.rememberTimePickerState(
             initialHour = initialHour,
             initialMinute = initialMinute,
-            is24Hour = true
+            is24Hour = use24Hour
         )
         // 当前 material3 版本无 TimePickerDialog，用 AlertDialog 承载 TimePicker
         androidx.compose.material3.AlertDialog(
