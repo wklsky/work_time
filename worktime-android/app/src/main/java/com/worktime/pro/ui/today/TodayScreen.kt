@@ -76,6 +76,7 @@ fun TodayScreen(
     val viewModel: TodayViewModel = viewModel(factory = factory)
     val state by viewModel.state.collectAsState()
     val now by viewModel.now.collectAsState()
+    val currentMinute by viewModel.nowMinute.collectAsState()
     val scheduledEnd by viewModel.scheduledEnd.collectAsState()
     val context = LocalContext.current
     val settings by LocalSettings.current.settings.collectAsState(initial = AppSettings())
@@ -83,13 +84,9 @@ fun TodayScreen(
 
     var quickType by remember { mutableStateOf(PunchType.WORK_START) }
     var pendingDelete by remember { mutableStateOf<PunchEventEntity?>(null) }
-    // 四类打卡时间独立保存；每次进入页面默认取手机当前时间，避免沿用上次停留时留下的旧值
-    val quickTimes = remember {
-        mutableStateMapOf<PunchType, LocalTime>().apply {
-            PunchType.entries.forEach { put(it, LocalTime.now()) }
-        }
-    }
-    val quickTime = quickTimes[quickType] ?: LocalTime.now()
+    // 仅记录用户手动选过的时间；未手动选择的类型跟随手机当前分钟自动刷新
+    val manualQuickTimes = remember { mutableStateMapOf<PunchType, LocalTime>() }
+    val quickTime = manualQuickTimes[quickType] ?: currentMinute
     var showQuickTimePicker by remember { mutableStateOf(false) }
 
     Column(
@@ -107,7 +104,7 @@ fun TodayScreen(
 
         // 工作状态 hero：实时计时 + 下一步动作；正常/加班口径不重叠
         val totals = state.sessions.toDayTotals()
-        val status = computeTodayStatus(state.events, now)
+        val status = computeTodayStatus(state.events, now, totals.netMinutes)
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
@@ -172,22 +169,9 @@ fun TodayScreen(
                             contentColor = MaterialTheme.colorScheme.primary
                         )
                     ) { Text(status.actionLabel) }
-                    TextButton(
-                        onClick = {
-                            quickTimes[actionType] = LocalTime.now()
-                            quickType = actionType
-                            showQuickTimePicker = true
-                        },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text(
-                            "调整时间",
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                        )
-                    }
                 } else {
                     Text(
-                        "今天四类打卡已完成",
+                        "当前记录已闭合，可在下方继续追加一段",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
                     )
@@ -227,11 +211,6 @@ fun TodayScreen(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Text(
-                    "默认取手机当前时间，每类打卡时间独立保存，点击可滑动调整",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
 
                 Button(
                     onClick = {
@@ -248,25 +227,44 @@ fun TodayScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // 四类打卡时间
-        Text("打卡记录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        // 打卡记录：按时间顺序展示多段，同类型可出现多次
+        Text(
+            "打卡记录 (${state.events.size})",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
         Spacer(Modifier.height(8.dp))
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                PunchType.entries.forEach { type ->
-                    val event = state.events.firstOrNull { it.punchType == type.name }
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(type.label, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                        if (event != null) {
-                            val source = PunchSource.entries.firstOrNull { it.name == event.source }?.label ?: event.source
-                            Text(viewModel.formatTime(event, use24Hour))
-                            Text(" ($source)", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            IconButton(onClick = { pendingDelete = event }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "删除")
+                if (state.events.isEmpty()) {
+                    Text(
+                        "今天还没有打卡，使用上方快速打卡或拍照录入",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    state.events.forEach { event ->
+                        val typeLabel = PunchType.entries
+                            .firstOrNull { it.name == event.punchType }?.label
+                            ?: event.punchType
+                        val source = PunchSource.entries
+                            .firstOrNull { it.name == event.source }?.label
+                            ?: event.source
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(typeLabel, fontWeight = FontWeight.Medium)
+                                Text(
+                                    "${viewModel.formatTime(event, use24Hour)} · $source",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                        } else {
-                            Text("未打卡", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            IconButton(onClick = { pendingDelete = event }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "删除这一段")
+                            }
                         }
                     }
                 }
@@ -327,7 +325,7 @@ fun TodayScreen(
                     val hour = pickerState.hour
                     val minute = pickerState.minute
                     if (hour in 0..23 && minute in 0..59) {
-                        quickTimes[quickType] = LocalTime.of(hour, minute)
+                        manualQuickTimes[quickType] = LocalTime.of(hour, minute)
                     } else {
                         Toast.makeText(context, "时间无效", Toast.LENGTH_SHORT).show()
                     }
@@ -349,47 +347,50 @@ private data class TodayStatus(
     val timerLabel: String
 )
 
-/** 由四类打卡事件推导工作状态与下一步动作 */
+/** 由四类打卡事件推导工作状态与下一步动作；多段时以最近一段是否闭合为准 */
 private fun computeTodayStatus(
     events: List<PunchEventEntity>,
-    now: LocalDateTime
+    now: LocalDateTime,
+    netMinutes: Int
 ): TodayStatus {
-    fun event(type: PunchType) = events.firstOrNull { it.punchType == type.name }
-    val workStart = event(PunchType.WORK_START)
-    val workEnd = event(PunchType.WORK_END)
-    val otStart = event(PunchType.OT_START)
-    val otEnd = event(PunchType.OT_END)
+    fun latest(type: PunchType) = events.lastOrNull { it.punchType == type.name }
+    val workStart = latest(PunchType.WORK_START)
+    val workEnd = latest(PunchType.WORK_END)
+    val otStart = latest(PunchType.OT_START)
+    val otEnd = latest(PunchType.OT_END)
 
-    // 加班中只计加班段，工作中从上班开始计
-    val anchor = when {
-        otStart != null && otEnd == null -> otStart
-        workStart != null && workEnd == null -> workStart
-        else -> workStart ?: otStart
+    val working = workStart != null && (workEnd == null || workStart.punchTime > workEnd.punchTime)
+    val overtime = otStart != null && (otEnd == null || otStart.punchTime > otEnd.punchTime)
+
+    fun elapsed(start: PunchEventEntity?): String {
+        if (start == null) return "00:00:00"
+        val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val safeSeconds = ((nowMillis - start.punchTime) / 1000).coerceAtLeast(0)
+        return String.format(
+            Locale.US,
+            "%02d:%02d:%02d",
+            (safeSeconds / 3600).toInt(),
+            ((safeSeconds % 3600) / 60).toInt(),
+            (safeSeconds % 60).toInt()
+        )
     }
-    val end = if (otStart != null) otEnd else workEnd
-    val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-    val elapsedSeconds = if (anchor != null) {
-        ((end?.punchTime ?: nowMillis) - anchor.punchTime) / 1000
-    } else 0L
-    val safeSeconds = elapsedSeconds.coerceAtLeast(0)
-    val timer = String.format(
-        Locale.US,
-        "%02d:%02d:%02d",
-        (safeSeconds / 3600).toInt(),
-        ((safeSeconds % 3600) / 60).toInt(),
-        (safeSeconds % 60).toInt()
-    )
+
+    val closedTimer = if (netMinutes > 0) {
+        TimeFormatter.formatDuration(netMinutes)
+    } else {
+        "00:00:00"
+    }
 
     return when {
         workStart == null && otStart == null ->
             TodayStatus("未开始", PunchType.WORK_START, "上班打卡", "00:00:00")
-        workStart != null && workEnd == null ->
-            TodayStatus("工作中", PunchType.WORK_END, "下班打卡", timer)
-        otStart != null && otEnd == null ->
-            TodayStatus("加班中", PunchType.OT_END, "加班结束", timer)
-        workStart != null && workEnd != null && otStart == null ->
-            TodayStatus("已下班", PunchType.OT_START, "加班打卡", timer)
+        working ->
+            TodayStatus("工作中", PunchType.WORK_END, "下班打卡", elapsed(workStart))
+        overtime ->
+            TodayStatus("加班中", PunchType.OT_END, "加班结束", elapsed(otStart))
+        workEnd != null && otStart == null ->
+            TodayStatus("已下班", PunchType.OT_START, "加班打卡", closedTimer)
         else ->
-            TodayStatus("今日已完成", null, "已完成", timer)
+            TodayStatus("今日已完成", null, "已完成", closedTimer)
     }
 }

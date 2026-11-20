@@ -95,19 +95,22 @@ class ReportExporter(private val context: Context) {
 
     private fun buildRow(daily: DailyMinutes, dayEvents: List<PunchEventEntity>): ReportRow {
         val date = TimeFormatter.parseDateKey(daily.date)
-        fun firstTime(type: String) = dayEvents.firstOrNull { it.punchType == type }
-            ?.let { TimeFormatter.formatTime(java.time.Instant.ofEpochMilli(it.punchTime)
-                .atZone(java.time.ZoneId.systemDefault()).toLocalTime()) } ?: ""
-        fun lastTime(type: String) = dayEvents.lastOrNull { it.punchType == type }
-            ?.let { TimeFormatter.formatTime(java.time.Instant.ofEpochMilli(it.punchTime)
-                .atZone(java.time.ZoneId.systemDefault()).toLocalTime()) } ?: ""
+        // 多段打卡用 / 连接，报表不丢失第二段及之后的时间
+        fun allTimes(type: String) = dayEvents
+            .filter { it.punchType == type }
+            .joinToString("/") {
+                TimeFormatter.formatTime(
+                    java.time.Instant.ofEpochMilli(it.punchTime)
+                        .atZone(java.time.ZoneId.systemDefault()).toLocalTime()
+                )
+            }
         return ReportRow(
             date = daily.date,
             weekday = TimeFormatter.weekdayCN(date),
-            workStart = firstTime("WORK_START"),
-            workEnd = lastTime("WORK_END"),
-            otStart = firstTime("OT_START"),
-            otEnd = lastTime("OT_END"),
+            workStart = allTimes("WORK_START"),
+            workEnd = allTimes("WORK_END"),
+            otStart = allTimes("OT_START"),
+            otEnd = allTimes("OT_END"),
             workMinutes = daily.workMinutes,
             overtimeMinutes = daily.overtimeMinutes
         )

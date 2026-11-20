@@ -112,9 +112,13 @@ class BackupManager(
         sb.append("日期,上班,下班,加班到,加班退,工作时长(小时),加班时长(小时),工时明细\n")
         allDates.forEach { date ->
             val dayEvents = eventsByDate[date].orEmpty()
-            fun firstTime(type: String) = dayEvents.firstOrNull { it.punchType == type }
-                ?.let { Instant.ofEpochMilli(it.punchTime).atZone(ZoneId.systemDefault()).toLocalTime().toString() }
-                .orEmpty()
+            // 多段打卡用 / 连接，避免导出时只保留第一段
+            fun allTimes(type: String) = dayEvents
+                .filter { it.punchType == type }
+                .joinToString("/") {
+                    Instant.ofEpochMilli(it.punchTime)
+                        .atZone(ZoneId.systemDefault()).toLocalTime().toString()
+                }
             val daySessions = sessionsByDate[date].orEmpty()
             val totals = daySessions.toDayTotals()
             val regular = totals.regularMinutes
@@ -122,10 +126,10 @@ class BackupManager(
             val formula = daySessions.joinToString("; ") { it.formula }
             sb.append(listOf(
                 date,
-                firstTime(PunchType.WORK_START.name),
-                firstTime(PunchType.WORK_END.name),
-                firstTime(PunchType.OT_START.name),
-                firstTime(PunchType.OT_END.name),
+                allTimes(PunchType.WORK_START.name),
+                allTimes(PunchType.WORK_END.name),
+                allTimes(PunchType.OT_START.name),
+                allTimes(PunchType.OT_END.name),
                 if (regular > 0) TimeFormatter.formatHours(regular).removeSuffix("h") else "0",
                 if (overtime > 0) TimeFormatter.formatHours(overtime).removeSuffix("h") else "0",
                 formula

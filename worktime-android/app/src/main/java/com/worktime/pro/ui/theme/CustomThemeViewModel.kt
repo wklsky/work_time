@@ -9,20 +9,41 @@ import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.worktime.pro.data.datastore.SettingsDataStore
+import com.worktime.pro.util.ColorContrast
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-enum class PaletteSlot(val label: String) {
-    PRIMARY("品牌色"),
-    WORK("正常工时"),
-    OVERTIME("加班"),
-    BACKGROUND("页面背景"),
-    SURFACE("卡片表面"),
-    TEXT_PRIMARY("正文文字"),
-    TEXT_SECONDARY("次要文字")
+enum class PaletteSlot(val label: String, val description: String) {
+    PRIMARY("品牌色", "标题、主按钮与选中态"),
+    WORK("正常工时", "正常工时与上班标签"),
+    OVERTIME("加班", "加班标签与今日圆环"),
+    BACKGROUND("页面背景", "页面与日历底色"),
+    SURFACE("卡片表面", "卡片与弹层底色"),
+    TEXT_PRIMARY("正文文字", "标题与正文"),
+    TEXT_SECONDARY("次要文字", "说明与图例")
+}
+
+fun CustomPalette.colorOf(slot: PaletteSlot): Color = when (slot) {
+    PaletteSlot.PRIMARY -> primary
+    PaletteSlot.WORK -> work
+    PaletteSlot.OVERTIME -> overtime
+    PaletteSlot.BACKGROUND -> background
+    PaletteSlot.SURFACE -> surface
+    PaletteSlot.TEXT_PRIMARY -> textPrimary
+    PaletteSlot.TEXT_SECONDARY -> textSecondary
+}
+
+fun CustomPalette.withColor(slot: PaletteSlot, color: Color): CustomPalette = when (slot) {
+    PaletteSlot.PRIMARY -> copy(primary = color)
+    PaletteSlot.WORK -> copy(work = color)
+    PaletteSlot.OVERTIME -> copy(overtime = color)
+    PaletteSlot.BACKGROUND -> copy(background = color)
+    PaletteSlot.SURFACE -> copy(surface = color)
+    PaletteSlot.TEXT_PRIMARY -> copy(textPrimary = color)
+    PaletteSlot.TEXT_SECONDARY -> copy(textSecondary = color)
 }
 
 data class CustomThemeUiState(
@@ -80,40 +101,50 @@ class CustomThemeViewModel(
 
     fun updateColor(slot: PaletteSlot, color: Color) {
         val current = _state.value
-        val palette = current.palette
-        val updated = when (slot) {
-            PaletteSlot.PRIMARY -> palette.copy(primary = color)
-            PaletteSlot.WORK -> palette.copy(work = color)
-            PaletteSlot.OVERTIME -> palette.copy(overtime = color)
-            PaletteSlot.BACKGROUND -> palette.copy(background = color)
-            PaletteSlot.SURFACE -> palette.copy(surface = color)
-            PaletteSlot.TEXT_PRIMARY -> palette.copy(textPrimary = color)
-            PaletteSlot.TEXT_SECONDARY -> palette.copy(textSecondary = color)
-        }
-        val primaryContrast = CustomPalette.contrastRatio(updated.textPrimary, updated.background)
-        val secondaryContrast = CustomPalette.contrastRatio(updated.textSecondary, updated.background)
-        val surfaceContrast = CustomPalette.contrastRatio(updated.textPrimary, updated.surface)
+        val updated = current.palette.withColor(slot, color)
+        val primaryContrast = ColorContrast.ratio(updated.textPrimary, updated.background)
+        val secondaryContrast = ColorContrast.ratio(updated.textSecondary, updated.background)
+        val surfaceContrast = ColorContrast.ratio(updated.textPrimary, updated.surface)
         if (primaryContrast < 3f || secondaryContrast < 3f || surfaceContrast < 3f) {
-            _state.value = current.copy(message = "对比度过低，文字会难以辨认，已取消本次修改")
+            val reason = when {
+                primaryContrast < 3f -> "正文与页面背景"
+                secondaryContrast < 3f -> "次要文字与页面背景"
+                else -> "正文与卡片表面"
+            }
+            _state.value = current.copy(
+                message = "$reason对比度过低，文字会难以辨认，已取消本次修改"
+            )
             return
         }
-        val warning = if (
-            primaryContrast < 4.5f || secondaryContrast < 4.5f || surfaceContrast < 4.5f
-        ) {
-            "提示：当前文字对比度低于 4.5:1，长时间阅读可能吃力"
-        } else null
+        val warning = when {
+            primaryContrast < 4.5f -> "提示：正文与页面背景对比度低于 4.5:1"
+            secondaryContrast < 4.5f -> "提示：次要文字与页面背景对比度低于 4.5:1"
+            surfaceContrast < 4.5f -> "提示：正文与卡片表面对比度低于 4.5:1"
+            else -> null
+        }
         _state.value = current.copy(
             light = if (current.editDark) current.light else updated,
             dark = if (current.editDark) updated else current.dark,
             message = warning
         )
-        viewModelScope.launch {
-            if (current.editDark) {
-                settings.setCustomDarkColors(updated.serialize())
-            } else {
-                settings.setCustomLightColors(updated.serialize())
-            }
+        persist(current.editDark, updated)
+    }
+
+    /** 只恢复当前颜色的默认值，保留同模式其他自定义色 */
+    fun resetSlot(slot: PaletteSlot) {
+        val current = _state.value
+        val defaults = if (current.editDark) {
+            CustomPalette.defaultDark()
+        } else {
+            CustomPalette.defaultLight()
         }
+        val updated = current.palette.withColor(slot, defaults.colorOf(slot))
+        _state.value = current.copy(
+            light = if (current.editDark) current.light else updated,
+            dark = if (current.editDark) updated else current.dark,
+            message = "已恢复「${slot.label}」默认色"
+        )
+        persist(current.editDark, updated)
     }
 
     fun setFontScale(scale: Float) {
@@ -123,32 +154,41 @@ class CustomThemeViewModel(
 
     fun resetPalette() {
         val current = _state.value
-        val updated = if (current.editDark) CustomPalette.defaultDark() else CustomPalette.defaultLight()
+        val updated = if (current.editDark) {
+            CustomPalette.defaultDark()
+        } else {
+            CustomPalette.defaultLight()
+        }
         _state.value = current.copy(
             light = if (current.editDark) current.light else updated,
             dark = if (current.editDark) updated else current.dark,
             message = "已恢复默认配色"
         )
-        viewModelScope.launch {
-            if (current.editDark) {
-                settings.setCustomDarkColors(updated.serialize())
-            } else {
-                settings.setCustomLightColors(updated.serialize())
-            }
-        }
+        persist(current.editDark, updated)
     }
 
     fun clearMessage() {
         _state.value = _state.value.copy(message = null)
     }
 
-    fun colorOf(slot: PaletteSlot): Color = when (slot) {
-        PaletteSlot.PRIMARY -> _state.value.palette.primary
-        PaletteSlot.WORK -> _state.value.palette.work
-        PaletteSlot.OVERTIME -> _state.value.palette.overtime
-        PaletteSlot.BACKGROUND -> _state.value.palette.background
-        PaletteSlot.SURFACE -> _state.value.palette.surface
-        PaletteSlot.TEXT_PRIMARY -> _state.value.palette.textPrimary
-        PaletteSlot.TEXT_SECONDARY -> _state.value.palette.textSecondary
+    fun colorOf(slot: PaletteSlot): Color = _state.value.palette.colorOf(slot)
+
+    fun defaultColorOf(slot: PaletteSlot): Color {
+        val defaults = if (_state.value.editDark) {
+            CustomPalette.defaultDark()
+        } else {
+            CustomPalette.defaultLight()
+        }
+        return defaults.colorOf(slot)
+    }
+
+    private fun persist(dark: Boolean, palette: CustomPalette) {
+        viewModelScope.launch {
+            if (dark) {
+                settings.setCustomDarkColors(palette.serialize())
+            } else {
+                settings.setCustomLightColors(palette.serialize())
+            }
+        }
     }
 }

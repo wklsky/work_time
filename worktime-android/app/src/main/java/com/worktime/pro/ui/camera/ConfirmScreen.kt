@@ -1,13 +1,14 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/main/java/com/worktime/pro/ui/camera/ConfirmScreen.kt
- * @Description: 识别结果确认页，展示原图与四类时间候选，用户核对/修正后入库（OCR 绝不直接写库）
+ * @Description: 识别结果确认页，按段编辑多段打卡，用户核对/修正后入库（OCR 绝不直接写库）
  */
 package com.worktime.pro.ui.camera
 
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -24,16 +25,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -52,17 +60,27 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.rememberAsyncImagePainter
 import com.worktime.pro.domain.evidence.EvidenceStore
 import com.worktime.pro.domain.model.Confidence
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.domain.ocr.OcrCandidate
 import com.worktime.pro.ui.ViewModelFactory
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.worktime.pro.ui.components.TimePickerDialog
+import com.worktime.pro.util.TimeFormatter
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneOffset
+
+private data class ConfirmEntry(
+    val id: Int,
+    val type: PunchType?,
+    val time: LocalTime?,
+    val confidence: Confidence?,
+    val rawText: String
+)
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -77,7 +95,7 @@ fun ConfirmScreen(
     val settings by com.worktime.pro.ui.LocalSettings.current.settings.collectAsState(
         initial = com.worktime.pro.data.datastore.AppSettings()
     )
-    val use24Hour = com.worktime.pro.util.TimeFormatter.use24Hour(context, settings.timeFormat)
+    val use24Hour = TimeFormatter.use24Hour(context, settings.timeFormat)
 
     // Android 8–9 写公共相册需要存储权限；页面打开时请求一次，拒绝也不阻塞入库
     val galleryPermissionLauncher = rememberLauncherForActivityResult(
@@ -104,35 +122,54 @@ fun ConfirmScreen(
         }
     }
 
-    // 每个类型的可编辑候选状态，用户可修正 OCR 结果
-    var workStart by remember { mutableStateOf<LocalTime?>(null) }
-    var workEnd by remember { mutableStateOf<LocalTime?>(null) }
-    var otStart by remember { mutableStateOf<LocalTime?>(null) }
-    var otEnd by remember { mutableStateOf<LocalTime?>(null) }
     var date by remember { mutableStateOf(LocalDate.now()) }
+    var entries by remember { mutableStateOf<List<ConfirmEntry>>(emptyList()) }
+    var nextEntryId by remember { mutableStateOf(1) }
+    var editingEntryId by remember { mutableStateOf<Int?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
     var assigningCandidate by remember { mutableStateOf<OcrCandidate?>(null) }
 
-    fun setSlot(type: PunchType, time: LocalTime?) {
-        when (type) {
-            PunchType.WORK_START -> workStart = time
-            PunchType.WORK_END -> workEnd = time
-            PunchType.OT_START -> otStart = time
-            PunchType.OT_END -> otEnd = time
+    fun addEntry(type: PunchType?, time: LocalTime?, confidence: Confidence?, rawText: String) {
+        entries = entries + ConfirmEntry(nextEntryId, type, time, confidence, rawText)
+        nextEntryId += 1
+    }
+
+    fun updateEntry(id: Int, transform: (ConfirmEntry) -> ConfirmEntry) {
+        entries = entries.map { if (it.id == id) transform(it) else it }
+    }
+
+    fun removeEntry(id: Int) {
+        entries = entries.filterNot { it.id == id }
+    }
+
+    fun addCandidate(candidate: OcrCandidate) {
+        val type = candidate.type
+        if (type == null) {
+            assigningCandidate = candidate
+        } else {
+            addEntry(type, candidate.time, candidate.confidence, candidate.rawText)
+            candidate.date?.let { date = it }
         }
     }
 
-    // 识别完成后，按设置决定是否自动填充；日期始终取首个识别日期供用户核对
+    // 自动填充开启时，所有候选（含同类型多段）都进入列表；关闭时保留空列表由用户添加
     LaunchedEffect(state.candidates, settings.ocrAutoFill) {
-        if (state.candidates.isNotEmpty()) {
-            if (settings.ocrAutoFill) {
-                workStart = state.candidates.firstOrNull { it.type == PunchType.WORK_START }?.time ?: workStart
-                workEnd = state.candidates.firstOrNull { it.type == PunchType.WORK_END }?.time ?: workEnd
-                otStart = state.candidates.firstOrNull { it.type == PunchType.OT_START }?.time ?: otStart
-                otEnd = state.candidates.firstOrNull { it.type == PunchType.OT_END }?.time ?: otEnd
+        if (state.candidates.isEmpty()) return@LaunchedEffect
+        state.candidates.firstNotNullOfOrNull { it.date }?.let { date = it }
+        if (settings.ocrAutoFill) {
+            var id = nextEntryId
+            entries = state.candidates.map { candidate ->
+                ConfirmEntry(
+                    id = id++,
+                    type = candidate.type,
+                    time = candidate.time,
+                    confidence = candidate.confidence,
+                    rawText = candidate.rawText
+                )
             }
-            // 屏幕上的 MM-DD 已补全年份，取首个识别日期作为记录归属日
-            state.candidates.firstNotNullOfOrNull { it.date }?.let { date = it }
+            nextEntryId = id
+        } else {
+            entries = emptyList()
         }
     }
 
@@ -141,7 +178,7 @@ fun ConfirmScreen(
     ) {
         Text("识别结果确认", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(
-            "请核对识别结果，修正后保存。OCR 结果不会自动入库。",
+            "请核对识别结果；同一天可以有多段，确认后才会入库。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -180,14 +217,17 @@ fun ConfirmScreen(
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("日期", modifier = Modifier.weight(1f))
                     Text(
-                        com.worktime.pro.util.TimeFormatter.formatDate(date),
+                        TimeFormatter.formatDate(date),
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
@@ -197,29 +237,58 @@ fun ConfirmScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                TimeField(
-                    "上班", workStart, use24Hour,
-                    state.candidates.firstOrNull { it.type == PunchType.WORK_START }?.confidence
-                ) { workStart = it }
-                TimeField(
-                    "下班", workEnd, use24Hour,
-                    state.candidates.firstOrNull { it.type == PunchType.WORK_END }?.confidence
-                ) { workEnd = it }
-                TimeField(
-                    "加班到", otStart, use24Hour,
-                    state.candidates.firstOrNull { it.type == PunchType.OT_START }?.confidence
-                ) { otStart = it }
-                TimeField(
-                    "加班退", otEnd, use24Hour,
-                    state.candidates.firstOrNull { it.type == PunchType.OT_END }?.confidence
-                ) { otEnd = it }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                Text(
+                    "打卡时间（可多段）",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                if (entries.isEmpty()) {
+                    Text(
+                        "还没有打卡时间。点击下方「添加一段」，或从识别结果添加。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    entries.forEachIndexed { index, entry ->
+                        EntryRow(
+                            index = index,
+                            entry = entry,
+                            use24Hour = use24Hour,
+                            onTypeChange = { type ->
+                                updateEntry(entry.id) { it.copy(type = type) }
+                            },
+                            onTimeClick = { editingEntryId = entry.id },
+                            onRemove = { removeEntry(entry.id) }
+                        )
+                        if (index != entries.lastIndex) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        addEntry(PunchType.WORK_START, null, null, "用户添加")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text("添加一段", modifier = Modifier.padding(start = 6.dp))
+                }
             }
         }
 
         if (!settings.ocrAutoFill) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "自动填充已关闭：可在下方识别结果点「填入」，或直接点时间手动设置。",
+                "自动填充已关闭：请在下方识别结果中点「添加」，或手动设置每一段。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -228,6 +297,15 @@ fun ConfirmScreen(
         if (state.candidates.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
             Text("识别结果", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                if (settings.ocrAutoFill) {
+                    "已自动填入上方列表；可逐段修改或删除。"
+                } else {
+                    "点击「添加」把识别结果加入上方列表；类型未知的需先指定。"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(Modifier.height(8.dp))
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
@@ -238,15 +316,8 @@ fun ConfirmScreen(
                         CandidateRow(
                             candidate = candidate,
                             use24Hour = use24Hour,
-                            onFill = {
-                                val type = candidate.type
-                                if (type != null) {
-                                    candidate.time?.let { setSlot(type, it) }
-                                    candidate.date?.let { date = it }
-                                } else {
-                                    assigningCandidate = candidate
-                                }
-                            }
+                            showAdd = !settings.ocrAutoFill,
+                            onAdd = { addCandidate(candidate) }
                         )
                     }
                 }
@@ -261,16 +332,31 @@ fun ConfirmScreen(
             }
             Button(
                 onClick = {
-                    val candidates = buildList {
-                        workStart?.let { add(OcrCandidate(PunchType.WORK_START, date, it, Confidence.HIGH, "用户确认")) }
-                        workEnd?.let { add(OcrCandidate(PunchType.WORK_END, date, it, Confidence.HIGH, "用户确认")) }
-                        otStart?.let { add(OcrCandidate(PunchType.OT_START, date, it, Confidence.HIGH, "用户确认")) }
-                        otEnd?.let { add(OcrCandidate(PunchType.OT_END, date, it, Confidence.HIGH, "用户确认")) }
+                    if (entries.isEmpty()) {
+                        Toast.makeText(context, "至少添加一段打卡时间", Toast.LENGTH_SHORT).show()
+                    } else if (entries.any { it.type == null || it.time == null }) {
+                        Toast.makeText(
+                            context,
+                            "请补全每一段的类型和时间，或删除空行",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        val candidates = entries.mapNotNull { entry ->
+                            val type = entry.type ?: return@mapNotNull null
+                            val time = entry.time ?: return@mapNotNull null
+                            OcrCandidate(
+                                type = type,
+                                date = date,
+                                time = time,
+                                confidence = entry.confidence ?: Confidence.HIGH,
+                                rawText = entry.rawText.ifBlank { "用户确认" }
+                            )
+                        }
+                        viewModel.confirmCandidates(candidates, date, context, onSaved)
                     }
-                    viewModel.confirmCandidates(candidates, date, context, onSaved)
                 },
                 modifier = Modifier.weight(1f),
-                enabled = workStart != null || workEnd != null || otStart != null || otEnd != null
+                enabled = entries.isNotEmpty()
             ) {
                 Text("确认保存")
             }
@@ -299,6 +385,20 @@ fun ConfirmScreen(
         }
     }
 
+    val editingEntry = editingEntryId?.let { id -> entries.firstOrNull { it.id == id } }
+    if (editingEntry != null) {
+        TimePickerDialog(
+            title = "设置打卡时间",
+            initialTime = editingEntry.time ?: LocalTime.now(),
+            use24Hour = use24Hour,
+            onDismiss = { editingEntryId = null },
+            onConfirm = { time ->
+                updateEntry(editingEntry.id) { it.copy(time = time) }
+                editingEntryId = null
+            }
+        )
+    }
+
     assigningCandidate?.let { candidate ->
         AlertDialog(
             onDismissRequest = { assigningCandidate = null },
@@ -313,7 +413,7 @@ fun ConfirmScreen(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         PunchType.entries.forEach { type ->
                             TextButton(onClick = {
-                                candidate.time?.let { setSlot(type, it) }
+                                addEntry(type, candidate.time, candidate.confidence, candidate.rawText)
                                 candidate.date?.let { date = it }
                                 assigningCandidate = null
                             }) { Text(type.label) }
@@ -330,10 +430,70 @@ fun ConfirmScreen(
 }
 
 @Composable
+private fun EntryRow(
+    index: Int,
+    entry: ConfirmEntry,
+    use24Hour: Boolean,
+    onTypeChange: (PunchType) -> Unit,
+    onTimeClick: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "第 ${index + 1} 段",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            entry.confidence?.let { ConfidenceBadge(it) }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Filled.Delete, contentDescription = "删除这一段")
+            }
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            PunchType.entries.forEach { type ->
+                FilterChip(
+                    selected = entry.type == type,
+                    onClick = { onTypeChange(type) },
+                    label = { Text(type.label) }
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onTimeClick) {
+                Text(
+                    text = entry.time?.let { TimeFormatter.formatTime(it, use24Hour) }
+                        ?: "设置时间",
+                    color = if (entry.time != null) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            if (entry.rawText.isNotBlank()) {
+                Text(
+                    text = entry.rawText.take(20),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun CandidateRow(
     candidate: OcrCandidate,
     use24Hour: Boolean,
-    onFill: () -> Unit
+    showAdd: Boolean,
+    onAdd: () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
@@ -342,7 +502,7 @@ private fun CandidateRow(
                 text = buildString {
                     append(
                         candidate.time?.let {
-                            com.worktime.pro.util.TimeFormatter.formatTime(it, use24Hour)
+                            TimeFormatter.formatTime(it, use24Hour)
                         } ?: "无时间"
                     )
                     if (candidate.rawText.isNotBlank()) {
@@ -356,8 +516,10 @@ private fun CandidateRow(
             )
         }
         ConfidenceBadge(candidate.confidence)
-        TextButton(onClick = onFill, enabled = candidate.time != null) {
-            Text(if (candidate.type == null) "指定" else "填入")
+        if (showAdd) {
+            TextButton(onClick = onAdd, enabled = candidate.time != null) {
+                Text(if (candidate.type == null) "指定" else "添加")
+            }
         }
     }
 }
@@ -380,64 +542,6 @@ private fun ConfidenceBadge(confidence: Confidence) {
             style = MaterialTheme.typography.labelSmall,
             color = color,
             fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-/** 时间输入行：点击弹出 Material3 时间选择器，支持用户修正 OCR 结果或补填未识别时间 */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-private fun TimeField(
-    label: String,
-    time: LocalTime?,
-    use24Hour: Boolean,
-    confidence: Confidence? = null,
-    onTimeChange: (LocalTime?) -> Unit
-) {
-    var showPicker by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, modifier = Modifier.weight(1f))
-        androidx.compose.material3.TextButton(onClick = { showPicker = true }) {
-            Text(
-                text = time?.let {
-                    com.worktime.pro.util.TimeFormatter.formatTime(it, use24Hour)
-                } ?: "点击设置时间",
-                color = if (time != null) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (confidence != null) {
-            Spacer(Modifier.width(6.dp))
-            ConfidenceBadge(confidence)
-        }
-    }
-    if (showPicker) {
-        val initialHour = time?.hour ?: 9
-        val initialMinute = time?.minute ?: 0
-        val pickerState = androidx.compose.material3.rememberTimePickerState(
-            initialHour = initialHour,
-            initialMinute = initialMinute,
-            is24Hour = use24Hour
-        )
-        // 当前 material3 版本无 TimePickerDialog，用 AlertDialog 承载 TimePicker
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showPicker = false },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
-                    onTimeChange(LocalTime.of(pickerState.hour, pickerState.minute))
-                    showPicker = false
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = {
-                    onTimeChange(null)
-                    showPicker = false
-                }) { Text("清除") }
-            },
-            text = { androidx.compose.material3.TimePicker(state = pickerState) }
         )
     }
 }

@@ -94,7 +94,7 @@ fun MineScreen(
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                     Text(
-                        "V${BuildConfig.VERSION_NAME} 单机版 · 记录每一分钟",
+                        "V${BuildConfig.VERSION_NAME} 记录每一分钟",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                     )
@@ -154,20 +154,6 @@ fun MineScreen(
                 MenuItem(icon = Icons.Filled.Settings, title = "设置", onClick = onOpenSettings)
             }
         }
-
-        Spacer(Modifier.height(24.dp))
-        Text(
-            "工时助手 ${BuildConfig.VERSION_NAME} · 完全离线",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            "数据仅存本机，不上传、不共享",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth()
-        )
     }
 }
 

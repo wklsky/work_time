@@ -12,6 +12,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -72,6 +75,7 @@ import com.worktime.pro.data.datastore.TimeFormatMode
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.domain.ocr.StatusMapping
 import com.worktime.pro.ui.ViewModelFactory
+import com.worktime.pro.ui.theme.CustomPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -231,6 +235,37 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                    val editingDark = settings.themeMode == ThemeMode.DARK.value ||
+                        (settings.themeMode == ThemeMode.SYSTEM.value && isSystemInDarkTheme())
+                    val previewPalette = CustomPalette.deserialize(
+                        if (editingDark) settings.customDarkColors else settings.customLightColors
+                    ) ?: if (editingDark) {
+                        CustomPalette.defaultDark()
+                    } else {
+                        CustomPalette.defaultLight()
+                    }
+                    Row(
+                        modifier = Modifier.padding(end = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf(
+                            previewPalette.primary,
+                            previewPalette.work,
+                            previewPalette.overtime
+                        ).forEach { color ->
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outlineVariant,
+                                        CircleShape
+                                    )
+                            )
+                        }
                     }
                     TextButton(onClick = onOpenCustomTheme) { Text("管理") }
                 }

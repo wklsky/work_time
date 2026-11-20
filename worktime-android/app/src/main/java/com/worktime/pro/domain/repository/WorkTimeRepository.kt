@@ -78,52 +78,43 @@ class WorkTimeRepository(
         punchDao.observeDayPunchCounts(start, end)
 
     /**
-     * 新增或覆盖打卡并立即重算当日工时段。
-     * 业务规则：同一 (日期, 类型) 只保留一条，重复点击或重复识别都走覆盖，
-     * 避免出现两个上班、一个下班导致的重算错配。
+     * 新增一条打卡并立即重算当日工时段。
+     * 业务规则：一天可以有多段上下班/加班段，同类型打卡按时间追加；
+     * 编辑已有记录必须走 updatePunch，避免误改其他段。
      */
     suspend fun addPunch(input: PunchInput): Long {
-        val id = upsertEvent(input)
+        val id = insertEvent(input)
         recalculate(input.workDate)
         return id
     }
 
     /**
-     * 批量写入打卡并只重算一次：供习惯打卡一键应用整组时间使用。
-     * 业务说明：习惯包含多条固定时间，逐条 addPunch 会重复重算多次；这里先全部入库再统一重算。
+     * 批量追加打卡并按日期各重算一次。
+     * 业务说明：习惯打卡含多条固定时间，逐条 addPunch 会重复重算；
+     * OCR 识别也可能跨日期，因此按 workDate 分组重算。
      */
     suspend fun addPunches(inputs: List<PunchInput>) {
         if (inputs.isEmpty()) return
-        inputs.forEach { upsertEvent(it) }
-        // 习惯固定在同一天，取首条日期重算即可
-        recalculate(inputs.first().workDate)
+        inputs.forEach { insertEvent(it) }
+        inputs.map { it.workDate }.distinct().forEach { recalculate(it) }
     }
 
-    /** 按 (workDate, punchType) 覆盖写入；历史重复数据顺手清理 */
-    private suspend fun upsertEvent(input: PunchInput): Long {
+    private suspend fun insertEvent(input: PunchInput): Long {
         val now = System.currentTimeMillis()
-        val existing = punchDao.getByDateAndType(input.workDate, input.punchType.name)
-        val keep = existing.firstOrNull()
-        val entity = PunchEventEntity(
-            id = keep?.id ?: 0,
-            workDate = input.workDate,
-            punchType = input.punchType.name,
-            punchTime = input.punchTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
-            source = input.source.name,
-            imagePath = input.imagePath ?: keep?.imagePath,
-            ocrRawText = input.ocrRawText ?: keep?.ocrRawText,
-            confidence = input.confidence?.name ?: keep?.confidence,
-            remark = input.remark ?: keep?.remark,
-            createTime = keep?.createTime ?: now,
-            updateTime = now
+        return punchDao.insert(
+            PunchEventEntity(
+                workDate = input.workDate,
+                punchType = input.punchType.name,
+                punchTime = input.punchTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                source = input.source.name,
+                imagePath = input.imagePath,
+                ocrRawText = input.ocrRawText,
+                confidence = input.confidence?.name,
+                remark = input.remark,
+                createTime = now,
+                updateTime = now
+            )
         )
-        return if (keep == null) {
-            punchDao.insert(entity)
-        } else {
-            existing.drop(1).forEach { punchDao.delete(it) }
-            punchDao.update(entity)
-            entity.id
-        }
     }
 
     suspend fun updatePunch(event: PunchEventEntity) {
@@ -176,8 +167,8 @@ class WorkTimeRepository(
 
     /**
      * 重算某日工时段：先清空旧结果，再按类型配对事件成段并计算。
-     * 业务规则：WORK_START/WORK_END 按时间顺序交替配对成 REGULAR 段；
-     * OT_START/OT_END 配对成 OVERTIME 段，独立加班段直接采用段时长，不再按标准工时推导。
+     * 业务规则：同一天可有多段，WORK_START/WORK_END 按时间配对成多个 REGULAR 段；
+     * OT_START/OT_END 配对成多个 OVERTIME 段，独立加班段直接采用段时长，不再按标准工时推导。
      */
     suspend fun recalculate(date: String) {
         val events = punchDao.getByDateOnce(date)

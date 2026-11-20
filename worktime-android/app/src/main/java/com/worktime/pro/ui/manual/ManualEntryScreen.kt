@@ -130,7 +130,7 @@ fun ManualEntryScreen(
                 )
 
                 Text(
-                    "提示：跨天记录（如下班时间早于上班时间）将自动按次日处理。",
+                    "提示：同一天可多次录入，工时会按打卡时间自动配对成多段；跨天记录（如下班早于上班）自动按次日处理。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

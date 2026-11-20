@@ -53,6 +53,20 @@ class TodayViewModel(
     val now: StateFlow<LocalDateTime> = DateTicker.seconds()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LocalDateTime.now())
 
+    /**
+     * 当前分钟：由每秒计时截断秒/纳秒后去重得到，仅每分钟变化一次。
+     * 业务说明：快速打卡默认时间需随手机时间推进，若直接用每秒时间会在选择器里剧烈跳动，
+     * 故只保留到分钟粒度；页面停留较久后也不会停留在进入页面那一刻的旧时间。
+     */
+    val nowMinute: StateFlow<LocalTime> = now
+        .map { it.toLocalTime().withSecond(0).withNano(0) }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            LocalTime.now().withSecond(0).withNano(0)
+        )
+
     /** 规则里的下班时间，用于状态卡展示“距下班” */
     val scheduledEnd: StateFlow<LocalTime> = repository.observeWorkRule()
         .map { rule ->

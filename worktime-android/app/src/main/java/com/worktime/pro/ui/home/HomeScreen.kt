@@ -311,14 +311,28 @@ fun HomeScreen(
         AlertDialog(
             onDismissRequest = { pendingHabit = null },
             title = { Text("应用习惯") },
-            text = { Text("今天已有打卡记录，应用「${habit.name}」将先清空今天记录再写入习惯时间，是否继续？") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "今天已有打卡记录。追加会保留现有记录并写入习惯时间；覆盖会先清空今天记录，再写入习惯时间。"
+                    )
+                    TextButton(onClick = {
+                        viewModel.applyHabit(habit, overwrite = true) {
+                            Toast.makeText(context, "已覆盖应用「${habit.name}」", Toast.LENGTH_SHORT).show()
+                        }
+                        pendingHabit = null
+                    }) {
+                        Text("覆盖应用", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.applyHabit(habit, overwrite = true) {
-                        Toast.makeText(context, "已应用「${habit.name}」", Toast.LENGTH_SHORT).show()
+                    viewModel.applyHabit(habit, overwrite = false) {
+                        Toast.makeText(context, "已追加应用「${habit.name}」", Toast.LENGTH_SHORT).show()
                     }
                     pendingHabit = null
-                }) { Text("覆盖应用") }
+                }) { Text("追加应用") }
             },
             dismissButton = {
                 TextButton(onClick = { pendingHabit = null }) { Text("取消") }

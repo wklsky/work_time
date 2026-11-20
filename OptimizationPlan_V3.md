@@ -23,7 +23,7 @@
 | 编号 | 严重度 | 问题 | 证据 | 影响 |
 |------|--------|------|------|------|
 | F-01 | **S0 数据** | 正常工时与加班重复计数：引擎 `workMinutes` 是净投入，`overtimeMinutes` 是其子集；UI 却把两者相加展示。周末更明显：`calculateWeekend` 同时返回 work=净时长、overtime=净时长，被当作「工作 8h + 加班 8h」 | [OvertimeCalculator.kt:46-56](worktime-android/app/src/main/java/com/worktime/pro/domain/engine/OvertimeCalculator.kt#L46-L56)、[TodayScreen.kt:96-98](worktime-android/app/src/main/java/com/worktime/pro/ui/today/TodayScreen.kt#L96-L98)、[SummaryViewModel.kt:80-85](worktime-android/app/src/main/java/com/worktime/pro/ui/summary/SummaryViewModel.kt#L80-L85)、[BackupManager.kt:115-117](worktime-android/app/src/main/java/com/worktime/pro/domain/backup/BackupManager.kt#L115-L117) | 9:00–20:00 显示「工作 10h + 加班 0.5h」，实际净投入 10h；月统计虚高 |
-| F-02 | **S0 数据** | 同类打卡可重复写入；重算按 `starts[index] ↔ ends[index]` 配对 | [TodayViewModel.kt:54-66](worktime-android/app/src/main/java/com/worktime/pro/ui/today/TodayViewModel.kt#L54-L66)、[WorkTimeRepository.kt:155-177](worktime-android/app/src/main/java/com/worktime/pro/domain/repository/WorkTimeRepository.kt#L155-L177) | 二次点「上班打卡」后出现 2 个上班、1 个下班，工时段错配/丢失 |
+| F-02 | **S0 数据** | 一天需要支持多段打卡，但重算按 `starts[index] ↔ ends[index]` 配对，且 UI 只展示每种类型的第一条 | [TodayViewModel.kt:54-66](worktime-android/app/src/main/java/com/worktime/pro/ui/today/TodayViewModel.kt#L54-L66)、[WorkTimeRepository.kt:155-177](worktime-android/app/src/main/java/com/worktime/pro/domain/repository/WorkTimeRepository.kt#L155-L177) | 多段班次错配，第二段及之后的打卡无法查看/编辑 |
 | F-03 | **S1 功能** | 工作规则无法配置：实体、DAO、默认数据都在，但没有任何写入口 | [Entities.kt:69-82](worktime-android/app/src/main/java/com/worktime/pro/data/db/Entities.kt#L69-L82)、`grep WorkRule` 仅命中数据层 | 非 9–18 班次、不同午休/缓冲的用户，加班全部算错 |
 | F-04 | **S2 性能** | 月历每个格子各自订阅 `observeDaySummary`，且 Flow 在 composable 内新建 | [HomeScreen.kt:243-245](worktime-android/app/src/main/java/com/worktime/pro/ui/home/HomeScreen.kt#L243-L245) | 每次重组 42 个 Flow 重建、84 次查询；滚动/切月掉帧 |
 | F-05 | **S1 功能** | 「加班色阶」开关无读取端，日历从不显示底色 | [SettingsDataStore.kt:45](worktime-android/app/src/main/java/com/worktime/pro/data/datastore/SettingsDataStore.kt#L45)、HomeScreen 无引用 | 设置形同虚设，PRD 3.2.2 未满足 |
@@ -89,13 +89,13 @@
 |------|--------|----------|----------|
 | P0-1 | 工时口径统一 | 见 2.0；同步修正 CSV、今日、详情、统计、日历 | 所有页面同一日期的「正常 + 加班」一致且不重叠 |
 | P0-2 | 工作规则中心 | 新增「设置 → 工作规则」：上下班时间、午休开关+时段、加班缓冲、日切时间、工作日多选；实时预览「标准工时」（在岗 − 午休，修正原实现少扣午休）；保存到 `work_rule`。修改后默认不回溯历史，提供「重算全部记录」二次确认动作 | 改成 8:30–17:30/午休 12–13/缓冲 15 后，新打卡按新规则计算；重算后可看到历史更新 |
-| P0-3 | 打卡幂等 + 配对加固 | 快速打卡/手动录入/确认页保存统一走 `upsertPunch`：同一 `(日期, 类型)` 覆盖而非追加；重算改为「每个上班找其后最近的未用下班」的贪心配对；确认页遇到同日同类型记录先提示「覆盖/追加」 | 连续点两次上班打卡只保留一条；上班/下班乱序时也能正确配对或明确跳过 |
+| P0-3 | 多段打卡 + 配对加固 | 同一天允许同类型多次打卡：快速打卡/手动录入/OCR 确认都追加写入；重算改为「每个上班找其后最近的未用下班」的贪心配对；今日与日详情按时间展示所有段，支持逐条编辑/删除；OCR 确认页改为可增删的多段列表 | 一天可记录多段上下班与加班段；乱序/缺段时正确配对或明确跳过；每段可独立修改 |
 | P0-4 | 月历性能与交互 | 新增 DAO 月区间聚合查询（session 汇总 + event 计数），`HomeViewModel` 一次订阅生成 `Map<date, DayCellState>`；42 格只读内存数据。加 `HorizontalPager` 滑动切月、`回到今天`、未来日期禁用、`加班色阶` 底色、缺卡角标、图例 | 切月 ≤ 500ms；滑动可切月；开关色阶即时生效；缺上下班的日期有提示 |
 | P0-5 | 凭证闭环 + 写入相册 | 新增全屏凭证查看器（双指缩放、分享）；路径改存相对文件名并兼容旧绝对路径；文件缺失显示占位；设置加「凭证管理」（占用、批量清理）；移除「备份含照片」死配置；**确认保存时把凭证同步写入系统相册 `Pictures/工时助手`**，设置中可关闭；API 29+ 走 MediaStore 无需权限，API 26–28 申请 `WRITE_EXTERNAL_STORAGE` | 详情页点图能看原图；确认保存后系统相册出现照片；关闭开关后不写；拒绝权限不阻塞入库；备份不含照片 |
 | P0-6 | 统计完整 | 自定义区间弹 `DateRangePicker`（含本月/上月/近 30 天/今年预设）；错误态独立于「截断」；真实 XLSX（自写最小 OOXML，零依赖）+ PDF（`PdfDocument`）+ CSV；按格式设置 MIME；导出移入 ViewModel | 五个维度都可翻页/选区；三种格式都能被系统应用正确打开；失败有重试 |
 | P0-7 | 备份完整 | 恢复全部设置（日历模式、时间制式、色阶、OCR 填充、输入方式、状态映射、主题、习惯、自定义配色）；旧版 JSON 继续可导入；**备份只含数据库与设置，不含照片（已确认）**；恢复后提示需重启生效的项 | 导出→清数据→导入，所有偏好与数据一致；照片不进入备份 |
 | P0-8 | 跨零点与生命周期 | 写库时取 `LocalDate.now()` 而非构造时快照；新增轻量 `DateTicker`（每分钟/到零点触发），Home/Today 的 `today` 改为可更新；跨零点的快速打卡时间重置为当前时刻 | 23:59 打开应用、00:05 打卡，记录落在新一天；圆环自动切到新一天 |
-| P0-9 | 确认页补全 | 日期可改（日期选择器）；展示置信度徽标；增加「其他识别结果」区，允许给 `type == null` 的候选指定类型；尊重 `ocrAutoFill`（关闭时不自动填，需点选）；保存前提示同日冲突 | PRD 3.1.7 的日期修正、类型修正、置信度标识全部可用 |
+| P0-9 | 确认页补全 | 改为可增删的多段打卡列表；日期可改（日期选择器）；每段可选类型、设时间、显示置信度；识别结果可多次添加，`type == null` 的候选可指定类型；尊重 `ocrAutoFill`；保存前校验每段的类型与时间 | PRD 3.1.7 的日期/类型修正、置信度标识可用，并支持多段入库 |
 | P0-10 | 线程与内存 | 存图、备份读写、导出全部切 IO；拍照后按最长边 ~1600px 缩放再 OCR；确认保存后清空 bitmap；`onCleared` 关闭 ML Kit client | 大图不再 OOM；保存无卡顿；连续拍 10 张内存稳定 |
 
 ---

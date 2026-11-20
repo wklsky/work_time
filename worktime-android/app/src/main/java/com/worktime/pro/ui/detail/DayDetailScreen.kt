@@ -1,7 +1,7 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/main/java/com/worktime/pro/ui/detail/DayDetailScreen.kt
- * @Description: 日详情界面，展示四类打卡时间、凭证、工时明细，支持点击编辑/补录打卡时间与删除
+ * @Description: 日详情界面，按时间展示多段打卡、凭证与工时明细，支持编辑、补录与删除
  */
 package com.worktime.pro.ui.detail
 
@@ -9,12 +9,15 @@ import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,15 +27,15 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,13 +58,19 @@ import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.ui.components.EvidenceViewer
+import com.worktime.pro.ui.components.TimePickerDialog
 import com.worktime.pro.util.TimeFormatter
 import java.io.File
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+private data class PunchEditorTarget(
+    val type: PunchType,
+    val event: PunchEventEntity?
+)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DayDetailScreen(
     dateKey: String,
@@ -77,14 +86,20 @@ fun DayDetailScreen(
     val settings by LocalSettings.current.settings.collectAsState(initial = AppSettings())
     val use24Hour = TimeFormatter.use24Hour(context, settings.timeFormat)
 
-    // 正在编辑的打卡类型：null 表示未打开时间选择器
-    var editingType by remember { mutableStateOf<PunchType?>(null) }
+    // 正在编辑/补录的目标：event 为空表示新增一段
+    var editingTarget by remember { mutableStateOf<PunchEditorTarget?>(null) }
     // 正在查看的凭证文件
     var viewingEvidence by remember { mutableStateOf<File?>(null) }
     // 待确认删除的打卡
     var pendingDelete by remember { mutableStateOf<PunchEventEntity?>(null) }
-    val editingEvent = editingType?.let { type ->
-        state.events.firstOrNull { it.punchType == type.name }
+
+    fun viewEvidence(path: String) {
+        val file = EvidenceStore.resolve(context, path)
+        if (file != null) {
+            viewingEvidence = file
+        } else {
+            Toast.makeText(context, "凭证图片已丢失", Toast.LENGTH_SHORT).show()
+        }
     }
 
     Column(
@@ -104,33 +119,63 @@ fun DayDetailScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // 四类时间卡片：点击行或编辑图标修改时间，未打卡点击 + 补录
+        // 按时间顺序展示所有打卡段；同类型可以出现多次
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                PunchType.entries.forEach { type ->
-                    val event = state.events.firstOrNull { it.punchType == type.name }
-                    PunchRow(
-                        type = type,
-                        event = event,
-                        use24Hour = use24Hour,
-                        onViewEvidence = { path ->
-                            val file = EvidenceStore.resolve(context, path)
-                            if (file != null) {
-                                viewingEvidence = file
-                            } else {
-                                Toast.makeText(context, "凭证图片已丢失", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onEdit = { editingType = type },
-                        onDelete = { if (event != null) pendingDelete = event }
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (state.events.isEmpty()) {
+                    Text(
+                        "当日无打卡记录，可在下方补录",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                } else {
+                    state.events.forEach { event ->
+                        val type = PunchType.entries.firstOrNull { it.name == event.punchType }
+                        if (type != null) {
+                            EventRow(
+                                event = event,
+                                type = type,
+                                use24Hour = use24Hour,
+                                onViewEvidence = { path -> viewEvidence(path) },
+                                onEdit = { editingTarget = PunchEditorTarget(type, event) },
+                                onDelete = { pendingDelete = event }
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+                Text("补录一段", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    PunchType.entries.forEach { type ->
+                        AssistChip(
+                            onClick = { editingTarget = PunchEditorTarget(type, null) },
+                            label = { Text(type.label) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }
 
         Spacer(Modifier.height(8.dp))
         Text(
-            "点击打卡时间可修改，未打卡可点 + 补录；修改后工时自动重算",
+            "同一天可有多段；点击时间可修改，删除后工时自动重算",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -139,16 +184,23 @@ fun DayDetailScreen(
 
         // 工时汇总：正常与加班互不重叠
         val totals = state.sessions.toDayTotals()
-        val totalWork = totals.regularMinutes
-        val totalOvertime = totals.overtimeMinutes
-
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("正常工作：${TimeFormatter.formatDuration(totalWork)}", fontWeight = FontWeight.Bold)
-                Text("加班时长：${TimeFormatter.formatDuration(totalOvertime)}", fontWeight = FontWeight.Bold)
+                Text(
+                    "正常工作：${TimeFormatter.formatDuration(totals.regularMinutes)}",
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "加班时长：${TimeFormatter.formatDuration(totals.overtimeMinutes)}",
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "净投入：${TimeFormatter.formatDuration(totals.netMinutes)}",
+                    fontWeight = FontWeight.Bold
+                )
                 state.sessions.forEach { session ->
                     Text(
                         session.formula,
@@ -183,91 +235,85 @@ fun DayDetailScreen(
         )
     }
 
-    if (editingType != null) {
-        val initial = editingEvent?.let {
+    editingTarget?.let { target ->
+        val initial = target.event?.let {
             Instant.ofEpochMilli(it.punchTime).atZone(ZoneId.systemDefault()).toLocalTime()
-        } ?: LocalTime.now()
-        val pickerState = rememberTimePickerState(
-            initialHour = initial.hour,
-            initialMinute = initial.minute,
-            is24Hour = use24Hour
-        )
-        AlertDialog(
-            onDismissRequest = { editingType = null },
-            confirmButton = {
-                TextButton(onClick = {
-                    val hour = pickerState.hour
-                    val minute = pickerState.minute
-                    if (hour in 0..23 && minute in 0..59) {
-                        val time = LocalTime.of(hour, minute)
-                        val type = editingType
-                        if (type != null) {
-                            if (editingEvent != null) {
-                                viewModel.updateEventTime(editingEvent, time) {
-                                    Toast.makeText(context, "${type.label}时间已更新", Toast.LENGTH_SHORT).show()
-                                }
-                            } else {
-                                viewModel.addEvent(type, time) {
-                                    Toast.makeText(context, "${type.label}打卡已补录", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                    } else {
-                        Toast.makeText(context, "时间无效", Toast.LENGTH_SHORT).show()
+        } ?: defaultTimeFor(target.type)
+        TimePickerDialog(
+            title = if (target.event == null) {
+                "补录${target.type.label}"
+            } else {
+                "修改${target.type.label}"
+            },
+            initialTime = initial,
+            use24Hour = use24Hour,
+            onDismiss = { editingTarget = null },
+            onConfirm = { time ->
+                val event = target.event
+                if (event != null) {
+                    viewModel.updateEventTime(event, time) {
+                        Toast.makeText(context, "${target.type.label}时间已更新", Toast.LENGTH_SHORT).show()
                     }
-                    editingType = null
-                }) { Text("保存") }
-            },
-            dismissButton = {
-                TextButton(onClick = { editingType = null }) { Text("取消") }
-            },
-            text = { TimePicker(state = pickerState) }
+                } else {
+                    viewModel.addEvent(target.type, time) {
+                        Toast.makeText(context, "${target.type.label}打卡已补录", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                editingTarget = null
+            }
         )
     }
 }
 
 @Composable
-private fun PunchRow(
+private fun EventRow(
+    event: PunchEventEntity,
     type: PunchType,
-    event: PunchEventEntity?,
     use24Hour: Boolean,
     onViewEvidence: (String) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val time = Instant.ofEpochMilli(event.punchTime).atZone(ZoneId.systemDefault()).toLocalTime()
+    val sourceLabel = PunchSource.entries.firstOrNull { it.name == event.source }?.label ?: event.source
+
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(type.label, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
-        if (event != null) {
-            val time = Instant.ofEpochMilli(event.punchTime).atZone(ZoneId.systemDefault()).toLocalTime()
-            Text(
-                TimeFormatter.formatTime(time, use24Hour),
-                modifier = Modifier.clickable(onClick = onEdit),
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
-            )
-            val sourceLabel = PunchSource.entries.firstOrNull { it.name == event.source }?.label ?: event.source
-            Text(" ($sourceLabel)", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (event.imagePath != null) {
-                Icon(
-                    Icons.Filled.Image,
-                    contentDescription = "查看凭证",
-                    modifier = Modifier.clickable { onViewEvidence(event.imagePath) }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(type.label, fontWeight = FontWeight.Medium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    TimeFormatter.formatTime(time, use24Hour),
+                    modifier = Modifier.clickable(onClick = onEdit),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    " · $sourceLabel",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.Edit, contentDescription = "修改时间")
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, contentDescription = "删除")
-            }
-        } else {
-            Text("未打卡", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.Add, contentDescription = "补录")
+        }
+        val imagePath = event.imagePath
+        if (imagePath != null) {
+            IconButton(onClick = { onViewEvidence(imagePath) }) {
+                Icon(Icons.Filled.Image, contentDescription = "查看凭证")
             }
         }
+        IconButton(onClick = onEdit) {
+            Icon(Icons.Filled.Edit, contentDescription = "修改时间")
+        }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Filled.Delete, contentDescription = "删除这一段")
+        }
     }
+}
+
+private fun defaultTimeFor(type: PunchType): LocalTime = when (type) {
+    PunchType.WORK_START -> LocalTime.of(9, 0)
+    PunchType.WORK_END -> LocalTime.of(18, 0)
+    PunchType.OT_START -> LocalTime.of(19, 0)
+    PunchType.OT_END -> LocalTime.of(21, 0)
 }
 
 /** 包装工厂，注入日期参数 */

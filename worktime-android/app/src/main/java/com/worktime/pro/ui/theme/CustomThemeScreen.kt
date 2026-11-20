@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -54,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.ui.components.ColorPickerDialog
+import com.worktime.pro.util.ColorContrast
+import com.worktime.pro.util.ContrastLevel
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -77,11 +81,14 @@ fun CustomThemeScreen(
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
             }
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text("自定义配色", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
                     "浅色/深色分别保存，实时预览",
@@ -89,6 +96,7 @@ fun CustomThemeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            TextButton(onClick = onBack) { Text("完成") }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -110,6 +118,14 @@ fun CustomThemeScreen(
                     Switch(
                         checked = state.enabled,
                         onCheckedChange = viewModel::setEnabled
+                    )
+                }
+
+                if (!state.enabled) {
+                    Text(
+                        "下面的配色会保存，但需开启上方开关后才会应用到界面",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
                     )
                 }
 
@@ -136,7 +152,20 @@ fun CustomThemeScreen(
                         FilterChip(
                             selected = state.palette == preset.light || state.palette == preset.dark,
                             onClick = { viewModel.applyPreset(preset) },
-                            label = { Text(preset.name) }
+                            label = { Text(preset.name) },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .clip(CircleShape)
+                                        .background(preset.light.primary)
+                                        .border(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.outlineVariant,
+                                            CircleShape
+                                        )
+                                )
+                            }
                         )
                     }
                 }
@@ -175,16 +204,23 @@ fun CustomThemeScreen(
                         ) {
                             Text(slot.label)
                             Text(
-                                color.toArgb().toHex(),
+                                slot.description,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Text(
-                            "修改",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                color.toArgb().toHex(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "修改",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             }
@@ -242,22 +278,36 @@ fun CustomThemeScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        val primaryRatio = CustomPalette.contrastRatio(
-            state.palette.textPrimary, state.palette.background
-        )
-        val secondaryRatio = CustomPalette.contrastRatio(
-            state.palette.textSecondary, state.palette.background
-        )
-        Text(
-            "正文对比度 ${"%.1f".format(Locale.US, primaryRatio)}:1 · " +
-                "次要文字 ${"%.1f".format(Locale.US, secondaryRatio)}:1",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (primaryRatio < 4.5f || secondaryRatio < 4.5f) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
+        val palette = state.palette
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "可读性检查",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                ContrastRow(
+                    "正文 / 页面背景",
+                    ColorContrast.ratio(palette.textPrimary, palette.background)
+                )
+                ContrastRow(
+                    "次要文字 / 页面背景",
+                    ColorContrast.ratio(palette.textSecondary, palette.background)
+                )
+                ContrastRow(
+                    "正文 / 卡片表面",
+                    ColorContrast.ratio(palette.textPrimary, palette.surface)
+                )
+                Text(
+                    "建议 ≥ 4.5:1；低于 3:1 的修改会被阻止",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-        )
+        }
 
         Spacer(Modifier.height(12.dp))
 
@@ -270,9 +320,36 @@ fun CustomThemeScreen(
     }
 
     pickingSlot?.let { slot ->
+        val palette = state.palette
+        val contrastAgainst = when (slot) {
+            PaletteSlot.TEXT_PRIMARY, PaletteSlot.TEXT_SECONDARY -> palette.background
+            PaletteSlot.BACKGROUND, PaletteSlot.SURFACE -> palette.textPrimary
+            PaletteSlot.PRIMARY, PaletteSlot.WORK, PaletteSlot.OVERTIME -> palette.background
+        }
+        val contrastLabel = when (slot) {
+            PaletteSlot.BACKGROUND -> "正文与背景对比度"
+            PaletteSlot.SURFACE -> "正文与卡片对比度"
+            else -> "与背景对比度"
+        }
+        val swatches = listOf(
+            palette.primary,
+            palette.work,
+            palette.overtime,
+            palette.background,
+            palette.surface,
+            palette.textPrimary,
+            palette.textSecondary,
+            Color.White,
+            Color.Black
+        ).distinct()
+
         ColorPickerDialog(
             title = slot.label,
             initialColor = viewModel.colorOf(slot),
+            defaultColor = viewModel.defaultColorOf(slot),
+            contrastAgainst = contrastAgainst,
+            contrastLabel = contrastLabel,
+            swatches = swatches,
             onDismiss = { pickingSlot = null },
             onConfirm = { color ->
                 viewModel.updateColor(slot, color)
@@ -294,6 +371,34 @@ private fun PreviewPill(color: Color, label: String) {
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = CustomPalette.contrastOn(color)
+        )
+    }
+}
+
+@Composable
+private fun ContrastRow(label: String, ratio: Float) {
+    val level = ColorContrast.level(ratio)
+    val (text, color) = when (level) {
+        ContrastLevel.GOOD -> "良好" to MaterialTheme.colorScheme.secondary
+        ContrastLevel.WARN -> "偏低" to MaterialTheme.colorScheme.tertiary
+        ContrastLevel.POOR -> "不足" to MaterialTheme.colorScheme.error
+    }
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            text = "${"%.1f".format(Locale.US, ratio)}:1",
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = "  $text",
+            style = MaterialTheme.typography.labelSmall,
+            color = color
         )
     }
 }

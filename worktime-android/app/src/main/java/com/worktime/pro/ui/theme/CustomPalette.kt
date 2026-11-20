@@ -11,8 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
-import kotlin.math.max
-import kotlin.math.min
+import com.worktime.pro.util.ColorContrast
 
 data class CustomPalette(
     val primary: Color,
@@ -116,19 +115,11 @@ data class CustomPalette(
         }
 
         /** 根据背景亮度自动选择黑/白前景，保证按钮文字可读 */
-        fun contrastOn(color: Color): Color {
-            val l = color.luminance()
-            val white = 1.05f / (l + 0.05f)
-            val black = (l + 0.05f) / 0.05f
-            return if (white >= black) Color.White else Color.Black
-        }
+        fun contrastOn(color: Color): Color = ColorContrast.on(color)
 
         /** WCAG 对比度，正文/背景建议 ≥ 4.5，低于 3 时禁止保存 */
-        fun contrastRatio(foreground: Color, background: Color): Float {
-            val l1 = max(foreground.luminance(), background.luminance()) + 0.05f
-            val l2 = min(foreground.luminance(), background.luminance()) + 0.05f
-            return l1 / l2
-        }
+        fun contrastRatio(foreground: Color, background: Color): Float =
+            ColorContrast.ratio(foreground, background)
     }
 }
 
