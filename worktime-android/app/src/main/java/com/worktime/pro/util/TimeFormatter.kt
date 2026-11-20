@@ -60,6 +60,13 @@ object TimeFormatter {
         DayOfWeek.SUNDAY -> "日"
     }
 
+    /** 日历格子用紧凑的小数小时展示时长，如 270 分钟 → "4.5h"，与工时 App 常见样式一致 */
+    fun formatHours(minutes: Int): String {
+        if (minutes <= 0) return ""
+        val hours = minutes / 60f
+        return "${String.format(java.util.Locale.US, "%.1f", hours)}h"
+    }
+
     /** 时长统一展示为"X小时Y分"，0 分钟显示"0分" */
     fun formatDuration(minutes: Int): String {
         if (minutes <= 0) return "0分"

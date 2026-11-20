@@ -17,10 +17,11 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "app_settings")
 
-/** 日历下方显示模式：全局统一，在设置中选择一次，影响所有日期格子 */
-enum class CalendarDisplayMode(val value: String) {
-    WORK_TIME("WORK_TIME"),
-    OVERTIME("OVERTIME")
+/** 日历每日显示内容：全部 / 仅上班时长 / 仅加班时长，全局统一生效 */
+enum class CalendarDisplayMode(val value: String, val label: String) {
+    ALL("ALL", "全部"),
+    WORK_TIME("WORK_TIME", "上班时长"),
+    OVERTIME("OVERTIME", "加班时长")
 }
 
 enum class TimeFormatMode(val value: String) {
