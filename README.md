@@ -1,232 +1,100 @@
-# WorkTime Pro · 智能工时与加班管理系统
+# WorkTime Pro · 智能工时与加班管理系统（单机版）
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com)
-[![Java](https://img.shields.io/badge/Java-17-orange)](https://openjdk.org/)
-[![Vue](https://img.shields.io/badge/Vue-3.x-green)](https://vuejs.org/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-brightgreen)](https://spring.io/)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0+-purple)](https://kotlinlang.org/)
+[![Jetpack Compose](https://img.shields.io/badge/Compose-Material3-green)](https://developer.android.com/jetpack/compose)
 
-面向个人和团队的工时记录、加班时间统计、时间分析平台。支持自动打卡、手动词条、多维度汇总和报表导出。
+面向个人的**离线**工时与加班记录工具。拍摄考勤机屏幕，本地 OCR 自动识别上班、下班、加班到、加班退四类时间，自动计算工时，以本月日历为核心视图进行查看与分析。
+
+**零后端、零服务器、零网络请求，数据完全留在手机本地。**
 
 ---
 
 ## 项目结构
 
 ```
-F:/App/
-├── README.md                    # 本文件
-├── PRD.md                       # 产品需求文档 V1.1
-├── DevelopmentPlan.md           # 开发计划书
-├── API_Design.md                # API 接口设计文档 (26 个接口)
-├── 数据库设计文档.md               # 数据库设计文档 (6 张核心表)
-│
-├── worktime-app/                # 📱 移动端 (Uni-App + Vue 3 + TS)
-│   └── src/
-│       ├── api/                 #   6 个 API 模块
-│       ├── mock/                #   开发用 Mock 系统 (7 个处理器)
-│       ├── stores/              #   Pinia 状态管理
-│       ├── composables/         #   Vue 3 组合式函数
-│       ├── components/          #   14 个 UI 组件
-│       ├── pages/               #   15 个页面
-│       ├── types/               #   TypeScript 类型定义
-│       └── utils/               #   工具函数库
-│
-└── worktime-server/             # 🖥️ 后端服务 (Spring Boot + MyBatis Plus)
-    └── src/main/java/com/worktime/
-        ├── config/              #   应用配置 (Security/MyBatis/Redis/CORS)
-        ├── security/            #   JWT 认证与鉴权
-        ├── common/              #   统一响应、异常处理、错误码
-        ├── entity/              #   6 个数据实体
-        ├── mapper/              #   MyBatis Plus 数据访问层
-        ├── dto/request/         #   9 个请求 DTO
-        ├── engine/              #   ⭐ 工时计算引擎
-        ├── service/             #   业务逻辑层 (5 个 Service)
-        └── controller/          #   REST 接口层 (6 个 Controller)
+f:/MyApplication/work_time/
+├── README.md                       # 本文件
+├── PRD_V2.md                       # 产品需求文档 V2.0
+├── DevelopmentPlan_V2.md           # 开发计划书 V2.0
+├── DatabaseDesign_V2.md            # 数据库设计文档 V2.0
+└── worktime-android/               # Kotlin 单机版 Android 工程
+    └── app/src/
+        ├── main/java/com/worktime/pro/
+        │   ├── domain/engine/       # 工时计算引擎（迁移自旧版）
+        │   ├── domain/ocr/          # OCR 字段抽取器
+        │   ├── domain/repository/   # 事件聚合与重算
+        │   ├── data/db/             # Room 实体/DAO/数据库
+        │   ├── data/datastore/      # 本地设置
+        │   └── ui/                  # Compose 界面（首页/拍照/确认/详情/设置）
+        └── test/                    # 单元测试（22 个用例）
 ```
+
+> 旧版云端架构（Vue 前端 + Spring Boot 后端）已移除。当前处于 V2.0 开发阶段一~四：数据层、工时引擎、OCR 识别链路与核心界面已完成，统计汇总/报表/备份待后续阶段实现。
+
+## 构建与测试
+
+```bash
+cd worktime-android
+
+# 运行单元测试（工时引擎 14 项 + OCR 抽取 8 项）
+gradlew.bat :app:testDebugUnitTest
+
+# 构建 Debug APK（输出：app/build/outputs/apk/debug/app-debug.apk）
+gradlew.bat :app:assembleDebug
+```
+
+环境要求：JDK 17、Android SDK Platform 35 / Build-Tools 35、Gradle 9.x（已含 Wrapper）。
 
 ---
 
-## 技术栈
+## 技术栈（V2.0）
 
-### 移动端 (`worktime-app/`)
-
-| 技术          | 版本    | 说明           |
-| ----------- | ----- | ------------ |
-| Uni-App     | 3.x   | 跨端框架 (Android/iOS/小程序) |
-| Vue         | 3.x   | 组合式 API      |
-| Pinia       | 2.x   | 状态管理         |
-| TypeScript  | 5.x   | 类型安全         |
-| ECharts     | 5.x   | 图表可视化        |
-| SCSS        | —     | 样式预处理        |
-
-### 后端 (`worktime-server/`)
-
-| 技术              | 版本    | 说明       |
-| --------------- | ----- | -------- |
-| Java            | 17    | 运行环境     |
-| Spring Boot     | 3.2   | 应用框架     |
-| Spring Security | 6.x   | 认证与鉴权    |
-| MyBatis Plus    | 3.5   | ORM 框架   |
-| MySQL           | 8.0   | 关系数据库    |
-| Redis           | 7.x   | 缓存与 Token 管理 |
-| JWT (jjwt)     | 0.12  | 无状态认证    |
-| Lombok          | —     | 代码简化     |
-
----
-
-## 快速开始
-
-### 1. 克隆并安装依赖
-
-```bash
-# 移动端
-cd worktime-app
-npm install
-
-# 后端
-cd worktime-server
-mvn clean install
-```
-
-### 2. 配置数据库
-
-确保 MySQL 8.0+ 和 Redis 7.x 已启动，然后执行建表脚本：
-
-```bash
-mysql -u root -p < worktime-server/src/main/resources/db/schema.sql
-```
-
-修改 `worktime-server/src/main/resources/application-dev.yml` 中的数据库连接信息。
-
-### 3. 启动后端
-
-```bash
-cd worktime-server
-mvn spring-boot:run
-# 服务启动在 http://localhost:8080
-```
-
-### 4. 启动前端
-
-```bash
-cd worktime-app
-
-# H5 浏览器预览
-npm run dev:h5
-
-# 微信小程序
-npm run dev:mp-weixin
-
-# Android/iOS App
-npm run dev:app
-```
-
-> 开发模式下前端默认使用 Mock 数据（`VITE_USE_MOCK=true`），无需后端即可运行。
-> 如需连接后端，设置 `VITE_USE_MOCK=false` 并确保后端已启动。
-
-### 5. 测试账号
-
-Mock 模式默认账号：
-
-| 字段 | 值 |
-| --- | --- |
-| 手机号 | `13800138000` |
-| 密码 | `Abc@123456` |
+| 层次 | 技术 | 说明 |
+|------|------|------|
+| 语言 | Kotlin 2.0+ | 协程 + Flow |
+| UI | Jetpack Compose + Material3 | 声明式 UI |
+| 架构 | MVVM + 单向数据流 | ViewModel + StateFlow |
+| 本地库 | Room (SQLite) | 持久化打卡数据 |
+| 设置 | DataStore | 本地偏好设置 |
+| 相机 | CameraX | 预览、拍照 |
+| OCR | ML Kit Text Recognition (Chinese, bundled) | 完全离线中文识别 |
+| 图表 | Vico / Compose Charts | 统计可视化 |
 
 ---
 
 ## 核心功能
 
-### 📱 移动端
-
-| 模块 | 功能 |
-| --- | --- |
-| **首页** | 今日日期、开始/结束工作、实时计时、工时自动展示 |
-| **日历** | 月/星期/今日 三种视图，加班色阶标记，左右滑动切换 |
-| **打卡** | 按钮模式（服务端时间）+ 手动模式（时间选择器），自由切换 |
-| **统计** | 月度/年度数据可视化趋势图 |
-| **我的** | 日/周/月/年/自定义 五维度工时汇总 |
-| **设置** | 时间进制 (24H/12H)、工时显示开关、日历默认视图、工作规则 |
-| **报表** | 异步导出 Excel/CSV/PDF，轮询状态，下载文件 |
-
-### 🖥️ 后端
-
-| 模块 | 接口数 | 说明 |
-| --- | --- | --- |
-| 用户中心 | 6 | 注册、登录 (JWT)、资料、密码 |
-| 首页 | 1 | 今日数据聚合 |
-| 打卡 | 6 | 上下班、手动录入、修改、日历 |
-| 汇总统计 | 6 | 日/周/月/年/自定义/快捷区间 |
-| 设置 | 4 | 用户设置 + 工作规则 |
-| 报表 | 3 | 异步导出创建/状态/历史 |
-
----
-
-## 工时计算引擎 ⭐
-
-核心业务逻辑位于 `worktime-server/src/main/java/com/worktime/engine/`：
-
-```
-                   ┌─────────────────────┐
-                   │   WorkTimeCalculator │  ← 主入口
-                   └──────────┬──────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          │                   │                   │
-          ▼                   ▼                   ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│ WorkdayClassifier│ │OvertimeCalculator│ │DateAttribution  │
-│ 工作日/周末判定    │ │ 加班分钟计算      │ │Resolver         │
-│                  │ │                  │ │ 日切时间归属     │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
-```
-
-**三种计算公式：**
-
-| 场景 | 公式 |
-| --- | --- |
-| 工作日 | 加班 = 总时长 − 午休 − 标准工时(480分) − 缓冲(30分) |
-| 周末 | 加班 = 总时长 − 午休 (全部算加班) |
-| 跨天 | 自动检测 clock_out < clock_in，按次日处理 |
-
----
-
-## 测试
-
-### 后端单元测试
-
-工时引擎覆盖 **11 类场景**：正常上下班、迟到、早退、跨天、周末、一日多段、手动输入、手动修改重算、12/24小时制转换、自定义区间边界。
-
-### 启动测试
-
-```bash
-cd worktime-server
-mvn test
-```
+- **拍照识别**：拍摄考勤机屏幕，离线 OCR 识别四类时间 + 类型，确认页人工核对后入库
+- **本月日历**：唯一主视图，记录圆点标记 + 加班色阶，左右滑动切换月份
+- **日历时间显示**：每日下方显示上班时间或加班时间，在设置中**全局统一切换**
+- **日详情页**：四类时间 + OCR 凭证原图 + 工时计算明细
+- **工时计算**：四类时间计算引擎（含跨天、午休、一日多段），迁移自旧版并修复 3 处缺陷
+- **统计汇总**：日 / 周 / 月 / 年 / 自定义 五维度本地汇总
+- **报表导出**：CSV / Excel / PDF
+- **数据备份**：本地导出 / 导入，替代原云端同步
 
 ---
 
 ## 环境要求
 
 | 组件 | 最低版本 |
-| --- | --- |
-| Node.js | 18+ |
-| Java | 17+ |
-| MySQL | 8.0+ |
-| Redis | 7.x |
-| Maven | 3.8+ |
-| HBuilderX | 最新版 (仅 App 打包需要) |
+|------|---------|
+| Android Studio | Ladybug 或更高 |
+| JDK | 17 |
+| Android SDK | API 26（Android 8.0）+ |
+| Kotlin | 2.0+ |
 
 ---
 
 ## 文档索引
 
-- [产品需求文档 (PRD)](PRD.md) — 功能范围、验收标准
-- [开发计划书](DevelopmentPlan.md) — 任务分解、排期、风险
-- [API 接口设计文档](API_Design.md) — 26 个 REST API 详细规范
-- [数据库设计文档](数据库设计文档.md) — 6 张表 DDL、索引策略、Redis 缓存键设计
+- [产品需求文档 V2.0](PRD_V2.md) — 功能范围、OCR 抽取规则、验收标准
+- [开发计划书 V2.0](DevelopmentPlan_V2.md) — 技术架构、WBS、排期、风险
+- [数据库设计文档 V2.0](DatabaseDesign_V2.md) — 点段分离模型、DAO、备份格式
 
 ---
 
 ## 许可证
 
-内部项目，仅供学习与团队使用。
+内部项目，仅供学习与个人使用。
