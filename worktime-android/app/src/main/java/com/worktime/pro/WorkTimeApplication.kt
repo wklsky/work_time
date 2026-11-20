@@ -32,7 +32,8 @@ class WorkTimeApplication : Application() {
             context = this,
             punchDao = database.punchEventDao(),
             sessionDao = database.workSessionDao(),
-            ruleDao = database.workRuleDao()
+            ruleDao = database.workRuleDao(),
+            settingsDataStore = settings
         )
     }
 }

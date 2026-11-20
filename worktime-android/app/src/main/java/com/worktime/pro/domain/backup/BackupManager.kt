@@ -7,6 +7,7 @@ package com.worktime.pro.domain.backup
 
 import android.content.Context
 import com.worktime.pro.data.datastore.AppSettings
+import com.worktime.pro.data.datastore.SettingsDataStore
 import com.worktime.pro.data.db.PunchEventDao
 import com.worktime.pro.data.db.WorkRuleDao
 import com.worktime.pro.data.db.WorkSessionDao
@@ -19,7 +20,8 @@ class BackupManager(
     private val context: Context,
     private val punchDao: PunchEventDao,
     private val sessionDao: WorkSessionDao,
-    private val ruleDao: WorkRuleDao
+    private val ruleDao: WorkRuleDao,
+    private val settingsDataStore: SettingsDataStore
 ) {
     /**
      * 导出全部数据为 JSON 文件。
@@ -39,6 +41,7 @@ class BackupManager(
                 put("defaultInputMode", settings.defaultInputMode)
                 put("ocrAutoFill", settings.ocrAutoFill)
                 put("backupIncludePhotos", settings.backupIncludePhotos)
+                put("statusMapping", settings.statusMapping)
             })
         }
         val dir = File(context.filesDir, Constants.BACKUP_DIR).apply { mkdirs() }
@@ -81,6 +84,10 @@ class BackupManager(
         punchDao.insertAll(events)
         sessionDao.insertAll(sessions)
         ruleDao.insertAll(rules)
+        // 恢复用户自定义状态映射，保证换机/重装后识别规则一致
+        json.optJSONObject("settings")?.optString("statusMapping")?.let {
+            settingsDataStore.setStatusMapping(it)
+        }
         Result.success(Unit)
     } catch (e: Exception) {
         Result.failure(e)

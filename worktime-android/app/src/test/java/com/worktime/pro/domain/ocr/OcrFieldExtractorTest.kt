@@ -97,4 +97,53 @@ class OcrFieldExtractorTest {
         val result = extractor.extractFromLines(listOf("006962 王建 13-40 08:25 F 0"), photoDate)
         assertEquals(0, result.size)
     }
+
+    @Test
+    fun `custom mapping overrides default`() {
+        // 用户自定义：状态3=上班、状态6=下班，与默认编码完全不同
+        val custom = mapOf(
+            "3" to PunchType.WORK_START,
+            "6" to PunchType.WORK_END
+        )
+        val lines = listOf(
+            "001 张三 11-19 08:30 F 3",
+            "001 张三 11-19 18:30 F 6"
+        )
+        val result = extractor.extractFromLines(lines, photoDate, custom)
+        assertEquals(2, result.size)
+        assertEquals(PunchType.WORK_START, result[0].type)
+        assertEquals(PunchType.WORK_END, result[1].type)
+    }
+
+    @Test
+    fun `unmapped status returns null type`() {
+        // 自定义映射未包含状态5，该行应为中置信度待用户指定
+        val custom = mapOf("0" to PunchType.WORK_START)
+        val result = extractor.extractFromLines(
+            listOf("001 张三 11-19 23:10 F 5"), photoDate, custom
+        )
+        assertEquals(1, result.size)
+        assertNull(result[0].type)
+        assertEquals(Confidence.MEDIUM, result[0].confidence)
+    }
+
+    @Test
+    fun `status mapping serialize and deserialize`() {
+        val map = mapOf(
+            "0" to PunchType.WORK_START,
+            "4" to PunchType.OT_START,
+            "5" to PunchType.OT_END
+        )
+        val serialized = StatusMapping.serialize(map)
+        assertEquals(map, StatusMapping.deserialize(serialized))
+    }
+
+    @Test
+    fun `deserialize skips malformed entries`() {
+        val value = "0=WORK_START,bad,1=UNKNOWN,4=OT_START"
+        val result = StatusMapping.deserialize(value)
+        assertEquals(2, result.size)
+        assertEquals(PunchType.WORK_START, result["0"])
+        assertEquals(PunchType.OT_START, result["4"])
+    }
 }
