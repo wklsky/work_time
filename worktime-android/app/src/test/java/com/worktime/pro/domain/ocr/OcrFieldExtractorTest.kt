@@ -1,7 +1,7 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/test/java/com/worktime/pro/domain/ocr/OcrFieldExtractorTest.kt
- * @Description: OCR 字段抽取测试，验证考勤机屏幕各类文本的类型识别与时间提取
+ * @Description: OCR 字段抽取测试，用实拍中控考勤机表格文本验证状态列判定与日期补全
  */
 package com.worktime.pro.domain.ocr
 
@@ -10,72 +10,91 @@ import com.worktime.pro.domain.model.PunchType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.LocalDate
 
 class OcrFieldExtractorTest {
     private val extractor = OcrFieldExtractor()
+    private val photoDate = LocalDate.of(2026, 11, 20)
+
+    /** 实拍样本：11-19 的完整一天，四行按屏幕自上而下（新→旧）排列 */
+    private val realScreenLines = listOf(
+        "工号 姓名 时间 验证 状态",
+        "006962 王建 11-19 23:10 F 5",
+        "006962 王建 11-19 18:00 F 4",
+        "006962 王建 11-19 17:59 F 1",
+        "006962 王建 11-19 08:25 F 0",
+        "记录(1/4)   F:指纹  5:加班签退"
+    )
 
     @Test
-    fun `recognize work start with time`() {
-        val result = extractor.extractFromLines(listOf("上班签到 09:02"))
-        assertEquals(1, result.size)
-        assertEquals(PunchType.WORK_START, result[0].type)
-        assertEquals(9, result[0].time?.hour)
-        assertEquals(2, result[0].time?.minute)
-        assertEquals(Confidence.HIGH, result[0].confidence)
-    }
-
-    @Test
-    fun `recognize overtime end with time`() {
-        val result = extractor.extractFromLines(listOf("加班签退  21:05"))
+    fun `parse real attendance machine screen all four types`() {
+        val result = extractor.extractFromLines(realScreenLines, photoDate)
+        assertEquals(4, result.size)
+        // 屏幕自上而下：状态5加班退 → 4加班到 → 1下班 → 0上班
         assertEquals(PunchType.OT_END, result[0].type)
-        assertEquals(21, result[0].time?.hour)
+        assertEquals(PunchType.OT_START, result[1].type)
+        assertEquals(PunchType.WORK_END, result[2].type)
+        assertEquals(PunchType.WORK_START, result[3].type)
+        assertEquals(23, result[0].time?.hour)
+        assertEquals(10, result[0].time?.minute)
     }
 
     @Test
-    fun `overtime keyword not mistaken as work end`() {
-        // 关键：加班签退含"签退"，必须优先识别为加班退而非下班
-        val result = extractor.extractFromLines(listOf("加班签退 20:30"))
-        assertEquals(PunchType.OT_END, result[0].type)
+    fun `status column maps to correct type`() {
+        val result = extractor.extractFromLines(realScreenLines, photoDate)
+        // 全部来自状态列，应为高置信度
+        result.forEach { assertEquals(Confidence.HIGH, it.confidence) }
     }
 
     @Test
-    fun `recognize work end with time`() {
-        val result = extractor.extractFromLines(listOf("下班打卡 18:05"))
-        assertEquals(PunchType.WORK_END, result[0].type)
-        assertEquals(18, result[0].time?.hour)
+    fun `date without year completed by photo date`() {
+        val result = extractor.extractFromLines(realScreenLines, photoDate)
+        result.forEach { assertEquals(LocalDate.of(2026, 11, 19), it.date) }
     }
 
     @Test
-    fun `type only without time is medium confidence`() {
-        val result = extractor.extractFromLines(listOf("上班签到成功"))
-        assertEquals(PunchType.WORK_START, result[0].type)
-        assertNull(result[0].time)
-        assertEquals(Confidence.MEDIUM, result[0].confidence)
+    fun `legend line excluded even with overtime keyword`() {
+        // 图例行"5:加班签退"含加班关键词但无日期时间，必须被排除，否则会多出候选
+        val result = extractor.extractFromLines(realScreenLines, photoDate)
+        assertEquals(4, result.size)
+        assert(result.none { it.rawText.contains("记录(1/4)") })
     }
 
     @Test
-    fun `time only without type is medium confidence`() {
-        val result = extractor.extractFromLines(listOf("09:15"))
-        assertNull(result[0].type)
-        assertEquals(9, result[0].time?.hour)
-        assertEquals(Confidence.MEDIUM, result[0].confidence)
-    }
-
-    @Test
-    fun `multiple lines mixed`() {
-        val result = extractor.extractFromLines(
-            listOf("2026-11-20 星期五", "工号: 10086 姓名: 张三", "上班签到 09:00", "下班签退 18:30")
+    fun `overtime only screen with two records`() {
+        // 实拍 11-15：当天只有加班签到/签退两条
+        val lines = listOf(
+            "006962 王建 11-15 20:28 F 5",
+            "006962 王建 11-15 19:53 F 4",
+            "记录(1/2)   F:指纹  5:加班签退"
         )
-        // 日期行含"11-20"无冒号不匹配时间；工号行无时间；后两行各识别一条
+        val result = extractor.extractFromLines(lines, photoDate)
         assertEquals(2, result.size)
-        assertEquals(PunchType.WORK_START, result[0].type)
-        assertEquals(PunchType.WORK_END, result[1].type)
+        assertEquals(PunchType.OT_END, result[0].type)
+        assertEquals(PunchType.OT_START, result[1].type)
+        assertEquals(20, result[0].time?.hour)
+        assertEquals(28, result[0].time?.minute)
     }
 
     @Test
-    fun `recognize overtime start`() {
-        val result = extractor.extractFromLines(listOf("加班开始 19:10"))
-        assertEquals(PunchType.OT_START, result[0].type)
-        assertEquals(19, result[0].time?.hour)
+    fun `missing status leaves type null for user to confirm`() {
+        val lines = listOf("006962 王建 11-19 08:25 F")
+        val result = extractor.extractFromLines(lines, photoDate)
+        assertEquals(1, result.size)
+        assertNull(result[0].type)
+        assertEquals(Confidence.MEDIUM, result[0].confidence)
+    }
+
+    @Test
+    fun `fallback keyword line still recognized`() {
+        val result = extractor.extractFromLines(listOf("上班签到 09:02"), photoDate)
+        assertEquals(PunchType.WORK_START, result[0].type)
+        assertEquals(9, result[0].time?.hour)
+    }
+
+    @Test
+    fun `invalid date skipped`() {
+        val result = extractor.extractFromLines(listOf("006962 王建 13-40 08:25 F 0"), photoDate)
+        assertEquals(0, result.size)
     }
 }

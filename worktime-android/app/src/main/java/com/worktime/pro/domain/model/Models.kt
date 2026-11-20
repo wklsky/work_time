@@ -15,7 +15,22 @@ enum class PunchType(val label: String) {
     OT_END("加班退");
 
     companion object {
-        /** OCR 识别出的中文关键词到类型的映射，供字段抽取器使用 */
+        /**
+         * 考勤机「状态」列数字到打卡类型的映射。
+         * 业务依据：实拍中控指纹考勤机屏幕底部图例标注"5:加班签退"，结合单日四条记录的时间顺序推断：
+         * 0=上班签到（早晨）、1=下班签退（傍晚）、4=加班签到（下班后）、5=加班签退（夜间）。
+         * 该编码为中控考勤机通用约定，类型判定优先用状态列而非文字关键词。
+         */
+        val STATUS_CODES: Map<String, PunchType> = mapOf(
+            "0" to WORK_START,
+            "1" to WORK_END,
+            "4" to OT_START,
+            "5" to OT_END
+        )
+
+        fun fromStatusCode(code: String): PunchType? = STATUS_CODES[code.trim()]
+
+        /** 中文关键词映射，仅作为无状态列屏幕的兜底方案 */
         val KEYWORDS: Map<PunchType, List<String>> = mapOf(
             WORK_START to listOf("上班签到", "上班打卡", "上班签入", "上班"),
             WORK_END to listOf("下班签退", "下班打卡", "下班签出", "下班"),
