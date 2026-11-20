@@ -24,12 +24,23 @@ Thumbs.db
 .env.local
 .env.*.local
 *.log
+local.properties
 
 # ===== Java =====
 *.class
 *.jar
 *.war
 !.mvn/wrapper/maven-wrapper.jar
+# Gradle Wrapper 的 jar 是必需依赖，必须纳入版本控制（匹配任意子目录下的 wrapper）
+!**/gradle/wrapper/gradle-wrapper.jar
+
+# ===== Gradle / Kotlin / Android =====
+.gradle/
+.kotlin/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
 
 # ===== Uni-App =====
 src/static/icons/*.png
