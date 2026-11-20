@@ -8,6 +8,10 @@ package com.worktime.pro.ui.camera
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.ImageDecoder
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +21,7 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -58,10 +63,27 @@ fun CameraScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasPermission = granted }
 
+    // 相册选择：用户可上传已有考勤照片，与拍照走同一识别链路
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            decodeUriToBitmap(context, uri)?.let(onCaptured)
+                ?: Toast.makeText(context, "图片读取失败", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     if (!hasPermission) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+        ) {
             Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
                 Text("授予相机权限")
+            }
+            androidx.compose.material3.TextButton(onClick = { galleryLauncher.launch("image/*") }) {
+                Text("从相册选择")
             }
         }
         return
@@ -70,15 +92,29 @@ fun CameraScreen(
     CameraPreview(
         context = context,
         onCaptured = onCaptured,
-        onClose = onClose
+        onClose = onClose,
+        onPickFromGallery = { galleryLauncher.launch("image/*") }
     )
+}
+
+/** 兼容 Android 各版本的 Uri 解码，失败返回 null 由调用方提示用户 */
+private fun decodeUriToBitmap(context: Context, uri: Uri): android.graphics.Bitmap? = try {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri))
+    } else {
+        @Suppress("DEPRECATION")
+        MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+    }
+} catch (e: Exception) {
+    null
 }
 
 @Composable
 private fun CameraPreview(
     context: Context,
     onCaptured: (android.graphics.Bitmap) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onPickFromGallery: () -> Unit
 ) {
     val previewView = remember { PreviewView(context) }
     val imageCapture = remember { ImageCapture.Builder().build() }
@@ -127,11 +163,22 @@ private fun CameraPreview(
             color = androidx.compose.ui.graphics.Color.White
         )
 
-        Button(
-            onClick = { capture(imageCapture, cameraExecutor, context, onCaptured) },
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp)
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("拍照")
+            Button(onClick = { capture(imageCapture, cameraExecutor, context, onCaptured) }) {
+                Text("拍照")
+            }
+            androidx.compose.material3.TextButton(
+                onClick = onPickFromGallery,
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    contentColor = androidx.compose.ui.graphics.Color.White
+                )
+            ) {
+                Text("从相册选择")
+            }
         }
     }
 }

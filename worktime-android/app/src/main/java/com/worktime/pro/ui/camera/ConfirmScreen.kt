@@ -67,13 +67,15 @@ fun ConfirmScreen(
     var otEnd by remember { mutableStateOf<LocalTime?>(null) }
     var date by remember { mutableStateOf(state.recognizedDate) }
 
-    // 识别完成后，把候选时间灌入可编辑状态供用户核对修正
+    // 识别完成后，把候选时间与日期灌入可编辑状态供用户核对修正
     LaunchedEffect(state.candidates) {
         if (state.candidates.isNotEmpty()) {
             workStart = state.candidates.firstOrNull { it.type == PunchType.WORK_START }?.time ?: workStart
             workEnd = state.candidates.firstOrNull { it.type == PunchType.WORK_END }?.time ?: workEnd
             otStart = state.candidates.firstOrNull { it.type == PunchType.OT_START }?.time ?: otStart
             otEnd = state.candidates.firstOrNull { it.type == PunchType.OT_END }?.time ?: otEnd
+            // 屏幕上的 MM-DD 已补全年份，取首个识别日期作为记录归属日
+            state.candidates.firstNotNullOfOrNull { it.date }?.let { date = it }
         }
     }
 
@@ -127,10 +129,10 @@ fun ConfirmScreen(
             Button(
                 onClick = {
                     val candidates = buildList {
-                        workStart?.let { add(OcrCandidate(PunchType.WORK_START, it, Confidence.HIGH, "用户确认")) }
-                        workEnd?.let { add(OcrCandidate(PunchType.WORK_END, it, Confidence.HIGH, "用户确认")) }
-                        otStart?.let { add(OcrCandidate(PunchType.OT_START, it, Confidence.HIGH, "用户确认")) }
-                        otEnd?.let { add(OcrCandidate(PunchType.OT_END, it, Confidence.HIGH, "用户确认")) }
+                        workStart?.let { add(OcrCandidate(PunchType.WORK_START, date, it, Confidence.HIGH, "用户确认")) }
+                        workEnd?.let { add(OcrCandidate(PunchType.WORK_END, date, it, Confidence.HIGH, "用户确认")) }
+                        otStart?.let { add(OcrCandidate(PunchType.OT_START, date, it, Confidence.HIGH, "用户确认")) }
+                        otEnd?.let { add(OcrCandidate(PunchType.OT_END, date, it, Confidence.HIGH, "用户确认")) }
                     }
                     viewModel.confirmCandidates(candidates, date, onSaved)
                 },

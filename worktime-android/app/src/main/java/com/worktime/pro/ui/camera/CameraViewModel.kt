@@ -97,12 +97,14 @@ class CameraViewModel(
             val state = _confirmState.value
             for (candidate in candidates) {
                 val time = candidate.time ?: continue
-                val workDate = TimeFormatter.formatDateKey(date)
+                // 优先用屏幕识别出的日期（MM-DD 补全年份），确认页修改后的日期作为回退
+                val effectiveDate = candidate.date ?: date
+                val workDate = TimeFormatter.formatDateKey(effectiveDate)
                 repository.addPunch(
                     PunchInput(
                         workDate = workDate,
                         punchType = candidate.type ?: continue,
-                        punchTime = LocalDateTime.of(date, time),
+                        punchTime = LocalDateTime.of(effectiveDate, time),
                         source = com.worktime.pro.domain.model.PunchSource.OCR,
                         imagePath = state.imagePath,
                         ocrRawText = candidate.rawText,
