@@ -128,21 +128,18 @@ fun SettingsScreen(
                     )
                 }
 
-                Text("日历每日下方显示", style = MaterialTheme.typography.bodyMedium)
+                Text("日历每日显示内容", style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = currentMode == CalendarDisplayMode.WORK_TIME,
-                        onClick = { viewModel.setCalendarDisplayMode(CalendarDisplayMode.WORK_TIME) },
-                        label = { Text("上班时间") }
-                    )
-                    FilterChip(
-                        selected = currentMode == CalendarDisplayMode.OVERTIME,
-                        onClick = { viewModel.setCalendarDisplayMode(CalendarDisplayMode.OVERTIME) },
-                        label = { Text("加班时间") }
-                    )
+                    CalendarDisplayMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = currentMode == mode,
+                            onClick = { viewModel.setCalendarDisplayMode(mode) },
+                            label = { Text(mode.label) }
+                        )
+                    }
                 }
                 Text(
-                    "全局统一生效：切换后首页所有日期格子的下方显示内容同步变化。",
+                    "全局统一生效：可选择在日历中显示全部、仅上班时长或仅加班时长。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

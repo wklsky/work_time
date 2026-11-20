@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -182,14 +182,14 @@ private fun DayCell(
 
     Column(
         modifier = modifier
-            .aspectRatio(0.9f)
+            .heightIn(min = 62.dp)
             .padding(2.dp)
             .clip(MaterialTheme.shapes.small)
             .background(cellBackground)
             .clickable(enabled = hasRecord) { onOpenDay(dateKey) }
-            .padding(4.dp),
+            .padding(vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Top
     ) {
         // 日期数字
         Box(
@@ -213,40 +213,40 @@ private fun DayCell(
             )
         }
 
-        // 记录圆点
-        if (hasRecord) {
-            Row(modifier = Modifier.padding(top = 2.dp)) {
-                repeat(summary.recordCount.coerceAtMost(4)) {
-                    Box(
-                        modifier = Modifier
-                            .size(4.dp)
-                            .padding(horizontal = 1.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
-                }
-            }
-        }
+        // 每日时长标签：全部 / 仅上班时长 / 仅加班时长，全局统一模式（用户决策）
+        // 参考常见工时 App，直接以时长标签标识有记录的日子，不再用圆点占位
+        val workText = TimeFormatter.formatHours(summary.regularMinutes)
+        val overtimeText = TimeFormatter.formatHours(summary.overtimeMinutes)
+        val showWork = displayMode == CalendarDisplayMode.ALL.value ||
+            displayMode == CalendarDisplayMode.WORK_TIME.value
+        val showOvertime = displayMode == CalendarDisplayMode.ALL.value ||
+            displayMode == CalendarDisplayMode.OVERTIME.value
 
-        // 每日下方时间显示：全局统一模式（用户决策）
-        val timeText = when (displayMode) {
-            CalendarDisplayMode.OVERTIME.value -> {
-                if (summary.firstOtStart != null || summary.lastOtEnd != null) {
-                    "加班 ${summary.firstOtStart ?: "?"}–${summary.lastOtEnd ?: "?"}"
-                } else "—"
+        if (hasRecord) {
+            // "全部"模式两行分别展示上班/加班，"单显"模式只展示对应一行并占满空间
+            if (showWork && workText.isNotEmpty()) {
+                DurationTag(text = workText, isOvertime = false)
             }
-            else -> {
-                if (summary.firstWorkStart != null || summary.lastWorkEnd != null) {
-                    "上班 ${summary.firstWorkStart ?: "?"}–${summary.lastWorkEnd ?: "?"}"
-                } else "—"
+            if (showOvertime && overtimeText.isNotEmpty()) {
+                DurationTag(text = overtimeText, isOvertime = true)
             }
         }
-        Text(
-            text = timeText,
-            fontSize = 8.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            color = if (hasRecord) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-        )
+    }
+}
+
+/** 时长标签：上班用主色、加班用第三色区分，圆角小块样式对齐常见工时 App */
+@Composable
+private fun DurationTag(text: String, isOvertime: Boolean) {
+    val container = if (isOvertime) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+    val content = if (isOvertime) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary
+    Box(
+        modifier = Modifier
+            .padding(top = 2.dp)
+            .clip(MaterialTheme.shapes.extraSmall)
+            .background(container)
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = text, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = content, maxLines = 1)
     }
 }
