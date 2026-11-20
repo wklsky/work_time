@@ -36,6 +36,12 @@ data class TodayState(
     val sessions: List<WorkSessionEntity> = emptyList()
 )
 
+/** 工作规则里的计划班次，用于今日卡展示计划下班时间与时间带上的计划区间 */
+data class PlannedShift(
+    val start: LocalTime = LocalTime.of(9, 0),
+    val end: LocalTime = LocalTime.of(18, 0)
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class TodayViewModel(
     private val repository: WorkTimeRepository,
@@ -67,13 +73,21 @@ class TodayViewModel(
             LocalTime.now().withSecond(0).withNano(0)
         )
 
-    /** 规则里的下班时间，用于状态卡展示“距下班” */
-    val scheduledEnd: StateFlow<LocalTime> = repository.observeWorkRule()
+    /** 规则里的计划上下班时间，用于今日卡展示计划下班与「距计划下班」 */
+    val plannedShift: StateFlow<PlannedShift> = repository.observeWorkRule()
         .map { rule ->
-            rule?.endTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
-                ?: LocalTime.of(18, 0)
+            fun parse(value: String?, fallback: LocalTime): LocalTime =
+                value?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: fallback
+            PlannedShift(
+                start = parse(rule?.startTime, LocalTime.of(9, 0)),
+                end = parse(rule?.endTime, LocalTime.of(18, 0))
+            )
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LocalTime.of(18, 0))
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            PlannedShift()
+        )
 
     val state: StateFlow<TodayState> = dateKey.flatMapLatest { key ->
         combine(

@@ -56,7 +56,7 @@ object ReminderNotification {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "工时提醒",
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "累计工时达到设定阈值时提醒"
         }

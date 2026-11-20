@@ -1,11 +1,12 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/main/java/com/worktime/pro/ui/today/TodayScreen.kt
- * @Description: 今日页，展示当天打卡与工时汇总，支持自定义时间的快速打卡及拍照/手动入口
+ * @Description: 今日页，「工时台账」时间卡：状态与实时累计 + 24 小时时间带 + 打卡时刻存根 + 今日流水
  */
 package com.worktime.pro.ui.today
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,22 +19,27 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -49,9 +55,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.db.PunchEventEntity
@@ -59,17 +69,16 @@ import com.worktime.pro.data.db.WorkSessionEntity
 import com.worktime.pro.data.db.toDayTotals
 import com.worktime.pro.domain.model.PunchSource
 import com.worktime.pro.domain.model.PunchType
-import com.worktime.pro.domain.reminder.ReminderScheduler
-import com.worktime.pro.domain.reminder.ReminderType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.util.TimeFormatter
+import java.time.Duration
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.util.Locale
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen(
     factory: ViewModelFactory,
@@ -81,59 +90,10 @@ fun TodayScreen(
     val state by viewModel.state.collectAsState()
     val now by viewModel.now.collectAsState()
     val currentMinute by viewModel.nowMinute.collectAsState()
-    val scheduledEnd by viewModel.scheduledEnd.collectAsState()
+    val plannedShift by viewModel.plannedShift.collectAsState()
     val context = LocalContext.current
     val settings by LocalSettings.current.settings.collectAsState(initial = AppSettings())
     val use24Hour = TimeFormatter.use24Hour(context, settings.timeFormat)
-
-    // 根据累计工作量排定/取消提醒；闹钟在后台也能触发
-    LaunchedEffect(
-        settings.reminderEnabled,
-        settings.reminderType,
-        settings.reminderMinutes,
-        settings.lastReminderKey,
-        state.today,
-        state.events,
-        state.sessions
-    ) {
-        if (!settings.reminderEnabled) {
-            ReminderScheduler.cancel(context)
-            return@LaunchedEffect
-        }
-        val type = ReminderType.entries.firstOrNull { it.value == settings.reminderType }
-            ?: ReminderType.OVERTIME
-        val live = computeLiveTotals(state.events, state.sessions, LocalDateTime.now())
-        val openWorkMinutes = (live.openWorkSeconds / 60).toInt()
-        val openOtMinutes = (live.openOtSeconds / 60).toInt()
-        val targetMinutes = when (type) {
-            ReminderType.OVERTIME -> live.overtimeMinutes + openOtMinutes
-            ReminderType.WORK -> live.regularMinutes + openWorkMinutes
-            ReminderType.NET -> live.regularMinutes + live.overtimeMinutes +
-                openWorkMinutes + openOtMinutes
-        }
-        val threshold = settings.reminderMinutes
-        val key = "${TimeFormatter.formatDateKey(state.today)}:${type.value}:$threshold"
-        if (settings.lastReminderKey == key) {
-            ReminderScheduler.cancel(context)
-            return@LaunchedEffect
-        }
-        val triggerAt = if (targetMinutes >= threshold) {
-            System.currentTimeMillis() + 1_000
-        } else {
-            val hasOpen = when (type) {
-                ReminderType.OVERTIME -> live.otOpen
-                ReminderType.WORK -> live.workOpen
-                ReminderType.NET -> live.workOpen || live.otOpen
-            }
-            if (!hasOpen) {
-                ReminderScheduler.cancel(context)
-                return@LaunchedEffect
-            }
-            System.currentTimeMillis() +
-                (threshold - targetMinutes).coerceAtLeast(1) * 60_000L
-        }
-        ReminderScheduler.schedule(context, triggerAt, type, threshold, state.today)
-    }
 
     var quickType by remember { mutableStateOf(PunchType.WORK_START) }
     var pendingDelete by remember { mutableStateOf<PunchEventEntity?>(null) }
@@ -141,152 +101,208 @@ fun TodayScreen(
     val manualQuickTimes = remember { mutableStateMapOf<PunchType, LocalTime>() }
     val quickTime = manualQuickTimes[quickType] ?: currentMinute
     var showQuickTimePicker by remember { mutableStateOf(false) }
+
+    val live = computeLiveTotals(state.events, state.sessions, now)
+    val status = computeTodayStatus(state.events, formatClock(live.liveSeconds))
     // 当前状态只允许闭合正在进行的段，或开启新的上班/加班段
     val allowedQuickTypes = remember(state.events) { allowedQuickTypesFor(state.events) }
-    LaunchedEffect(allowedQuickTypes) {
-        if (quickType !in allowedQuickTypes) {
-            quickType = allowedQuickTypes.first()
-        }
+    LaunchedEffect(allowedQuickTypes, status.actionType) {
+        // 状态变化后把默认动作对齐到状态建议，用户仍可在两段都开放时手动切换
+        quickType = status.actionType?.takeIf { it in allowedQuickTypes }
+            ?: allowedQuickTypes.first()
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
+    val onClock = live.workStartMillis != null || live.otStartMillis != null
+    val zone = remember { ZoneId.systemDefault() }
+    val nowMillis = now.atZone(zone).toInstant().toEpochMilli()
+    val dayStartMillis = state.today.atStartOfDay(zone).toInstant().toEpochMilli()
+    val bands = remember(
+        state.sessions,
+        live.workStartMillis,
+        live.otStartMillis,
+        nowMillis,
+        dayStartMillis
     ) {
-        // 标题区
-        Text("今日", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        buildTapeBands(
+            sessions = state.sessions,
+            openWorkStartMillis = live.workStartMillis,
+            openOtStartMillis = live.otStartMillis,
+            nowMillis = nowMillis,
+            dayStartMillis = dayStartMillis
+        )
+    }
+    val nowMinuteOfDay = now.hour * 60f + now.minute + now.second / 60f
+    val planEndMinutes = Duration.between(
+        now,
+        now.toLocalDate().atTime(plannedShift.end)
+    ).toMinutes()
+
+    val lastEvent = state.events.maxByOrNull { it.punchTime }
+    val contextLine = when {
+        onClock && planEndMinutes > 0 ->
+            "距计划下班 ${TimeFormatter.formatDuration(planEndMinutes.toInt())}"
+        onClock && planEndMinutes < 0 ->
+            "已超计划下班 ${TimeFormatter.formatDuration((-planEndMinutes).toInt())}"
+        onClock -> "已到计划下班时间"
+        state.events.isEmpty() -> "今天还没开始记录"
+        lastEvent != null ->
+            "最近记录 ${viewModel.formatTime(lastEvent, use24Hour)} · ${lastEvent.typeLabel()}"
+        else -> "今日记录已闭合"
+    }
+
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Column(
+        modifier = Modifier.fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(top = 16.dp, bottom = 24.dp)
+    ) {
+        // 页头：日期只保留月日与星期，年对「今日」没有信息量
+        Text("今日", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(2.dp))
         Text(
-            "${TimeFormatter.formatDate(state.today)} ${TimeFormatter.weekdayCN(state.today)}",
+            "${state.today.monthValue}月${state.today.dayOfMonth}日 · ${TimeFormatter.weekdayCN(state.today)}",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = muted
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(18.dp))
 
-        // 工作状态 hero：多段累计实时计时 + 下一步动作
-        val live = computeLiveTotals(state.events, state.sessions, now)
-        val status = computeTodayStatus(state.events, formatClock(live.liveSeconds))
-        Card(
+        // 时间卡：状态、实时累计、时间带与打卡存根放在同一张纸面上
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            Column(modifier = Modifier.padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val active = status.label == "工作中" || status.label == "加班中"
                     Box(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
                             .background(
-                                if (active) MaterialTheme.colorScheme.tertiary
-                                else MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)
+                                if (onClock) MaterialTheme.colorScheme.tertiary
+                                else muted.copy(alpha = 0.45f)
                             )
                     )
                     Text(
                         status.label,
                         modifier = Modifier.padding(start = 8.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontWeight = FontWeight.Medium
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.sp
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
-                        "下班 ${TimeFormatter.formatTime(scheduledEnd, use24Hour)}",
+                        "计划下班 ${TimeFormatter.formatTime(plannedShift.end, use24Hour)}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
+                        color = muted
                     )
                 }
 
+                Spacer(Modifier.height(16.dp))
+
+                Text(
+                    "今日累计",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = muted,
+                    letterSpacing = 2.sp
+                )
+                Spacer(Modifier.height(2.dp))
                 Text(
                     status.timerLabel,
                     style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = (-1).sp
                 )
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    "正常 ${TimeFormatter.formatDuration(live.regularMinutes)} · " +
-                        "加班 ${TimeFormatter.formatDuration(live.overtimeMinutes)}",
+                    contextLine,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                    color = if (onClock && planEndMinutes < 0) {
+                        MaterialTheme.colorScheme.tertiary
+                    } else {
+                        muted
+                    }
                 )
 
-                val actionType = status.actionType
-                if (actionType != null) {
-                    Button(
-                        onClick = {
-                            viewModel.quickPunch(actionType, LocalTime.now()) { error ->
-                                if (error == null) {
-                                    manualQuickTimes.remove(actionType)
-                                }
-                                Toast.makeText(
-                                    context,
-                                    error ?: "${actionType.label}打卡成功",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.onPrimary,
-                            contentColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) { Text(status.actionLabel) }
-                } else {
-                    Text(
-                        "当前记录已闭合，可在下方继续追加一段",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                Spacer(Modifier.height(16.dp))
+
+                DayTape(
+                    bands = bands,
+                    nowMinuteOfDay = nowMinuteOfDay,
+                    plannedStartMinute = plannedShift.start.hour * 60f + plannedShift.start.minute,
+                    plannedEndMinute = plannedShift.end.hour * 60f + plannedShift.end.minute,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                // 色点同时充当时间带图例：蓝=正常，橙=加班
+                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    TotalItem(
+                        color = MaterialTheme.colorScheme.secondary,
+                        label = "正常",
+                        minutes = live.regularMinutes
+                    )
+                    TotalItem(
+                        color = MaterialTheme.colorScheme.tertiary,
+                        label = "加班",
+                        minutes = live.overtimeMinutes
                     )
                 }
-            }
-        }
 
-        Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(14.dp))
 
-        // 快速打卡：默认取当前时间，用户可滑动微调后一键写入，省去每次都走完整手动录入流程
-        Text("快速打卡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PunchType.entries.forEach { type ->
-                        FilterChip(
-                            selected = quickType == type,
-                            onClick = { quickType = type },
-                            enabled = type in allowedQuickTypes,
-                            label = { Text(type.label) }
+                // 打卡存根：时间在上，动作在下；允许两种动作时才出现切换
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable { showQuickTimePicker = true }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "打卡时刻",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = muted,
+                            letterSpacing = 1.5.sp
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                TimeFormatter.formatTime(quickTime, use24Hour),
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = muted
+                            )
+                        }
+                    }
+                    if (allowedQuickTypes.size > 1) {
+                        PunchTypeToggle(
+                            options = allowedQuickTypes.sortedBy { it.ordinal },
+                            selected = quickType,
+                            onSelect = { quickType = it }
                         )
                     }
                 }
-                Text(
-                    when {
-                        allowedQuickTypes == setOf(PunchType.WORK_END) ->
-                            "上班段尚未结束，只能打下班卡"
-                        allowedQuickTypes == setOf(PunchType.OT_END) ->
-                            "加班段尚未结束，只能打加班退卡"
-                        else ->
-                            "没有进行中的班段，可开始上班或加班"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
 
-                // 时间行点击弹出滑动 TimePicker，制式跟随用户设置
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { showQuickTimePicker = true },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("打卡时间", modifier = Modifier.weight(1f))
-                    Text(
-                        TimeFormatter.formatTime(quickTime, use24Hour),
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Spacer(Modifier.height(12.dp))
 
                 Button(
                     onClick = {
@@ -299,97 +315,137 @@ fun TodayScreen(
                             }
                             Toast.makeText(
                                 context,
-                                error ?: "${type.label}打卡成功",
+                                error ?: type.savedCopy(),
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = quickType in allowedQuickTypes
-                ) { Text("一键打卡") }
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // 打卡记录：按时间顺序展示多段，同类型可出现多次
-        Text(
-            "打卡记录 (${state.events.size})",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (state.events.isEmpty()) {
-                    Text(
-                        "今天还没有打卡，使用上方快速打卡或拍照录入",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
                     )
-                } else {
-                    state.events.forEach { event ->
-                        val typeLabel = PunchType.entries
-                            .firstOrNull { it.name == event.punchType }?.label
-                            ?: event.punchType
-                        val source = PunchSource.entries
-                            .firstOrNull { it.name == event.source }?.label
-                            ?: event.source
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(typeLabel, fontWeight = FontWeight.Medium)
-                                Text(
-                                    "${viewModel.formatTime(event, use24Hour)} · $source",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            IconButton(onClick = { pendingDelete = event }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "删除这一段")
-                            }
-                        }
-                    }
+                ) {
+                    Text(
+                        quickType.ctaLabel(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(26.dp))
 
-        // 其他打卡入口
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onOpenCamera, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("拍照打卡", modifier = Modifier.padding(start = 6.dp))
+        // 今日流水：台账式横线表，时间单独成列
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "今日流水",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.sp
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${state.events.size} 条",
+                style = MaterialTheme.typography.labelMedium,
+                fontFamily = FontFamily.Monospace,
+                color = muted
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+
+        if (state.events.isEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "今天还没有打卡记录",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "拍一张考勤机屏幕自动识别，或按上面的按钮记录时间。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = muted
+                    )
+                }
             }
-            OutlinedButton(onClick = onOpenManual, modifier = Modifier.weight(1f)) {
-                Text("手动打卡")
+        } else {
+            Column {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                state.events.forEachIndexed { index, event ->
+                    PunchRecordRow(
+                        typeLabel = event.typeLabel(),
+                        sourceLabel = event.sourceLabel(),
+                        timeLabel = viewModel.formatTime(event, use24Hour),
+                        onDelete = { pendingDelete = event }
+                    )
+                    if (index < state.events.lastIndex) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // 其他录入入口：拍照识别是产品主路径，手动录入作为补充
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FilledTonalButton(
+                onClick = onOpenCamera,
+                modifier = Modifier.weight(1f).height(48.dp)
+            ) {
+                Icon(
+                    Icons.Filled.PhotoCamera,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("拍照识别")
+            }
+            OutlinedButton(
+                onClick = onOpenManual,
+                modifier = Modifier.weight(1f).height(48.dp)
+            ) {
+                Text("手动录入")
             }
         }
 
         if (state.events.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(
+            Spacer(Modifier.height(4.dp))
+            TextButton(
                 onClick = { onOpenDayDetail(TimeFormatter.formatDateKey(state.today)) },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("查看详情") }
+            ) {
+                Text("查看当日明细")
+            }
         }
     }
 
     pendingDelete?.let { event ->
-        val typeLabel = PunchType.entries.firstOrNull { it.name == event.punchType }?.label
-            ?: event.punchType
+        val typeLabel = event.typeLabel()
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("删除打卡") },
-            text = { Text("确定删除这条「$typeLabel」记录吗？删除后当日工时将自动重算。") },
+            title = { Text("删除这条打卡？") },
+            text = { Text("将删除「$typeLabel」记录，当日工时随即重算。") },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteEvent(event)
-                    pendingDelete = null
-                }) { Text("删除") }
+                TextButton(
+                    onClick = {
+                        viewModel.deleteEvent(event)
+                        pendingDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("删除") }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text("取消") }
@@ -405,6 +461,7 @@ fun TodayScreen(
         )
         AlertDialog(
             onDismissRequest = { showQuickTimePicker = false },
+            title = { Text("打卡时刻") },
             confirmButton = {
                 TextButton(onClick = {
                     val hour = pickerState.hour
@@ -425,10 +482,145 @@ fun TodayScreen(
     }
 }
 
+/** 正常 / 加班累计，色点即时间带图例 */
+@Composable
+private fun TotalItem(
+    color: Color,
+    label: String,
+    minutes: Int
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(Modifier.width(7.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            TimeFormatter.formatDuration(minutes),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+/** 两种合法动作并存时的切换：上班 / 加班到，或补录两个开始动作 */
+@Composable
+private fun PunchTypeToggle(
+    options: List<PunchType>,
+    selected: PunchType,
+    onSelect: (PunchType) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(3.dp)
+    ) {
+        options.forEach { type ->
+            val isSelected = type == selected
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                    )
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.RadioButton,
+                        onClick = { onSelect(type) }
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    type.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** 流水行：类型 + 来源在左，时刻单独成列，删除入口保持克制 */
+@Composable
+private fun PunchRecordRow(
+    typeLabel: String,
+    sourceLabel: String,
+    timeLabel: String,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                typeLabel,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                sourceLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            timeLabel,
+            style = MaterialTheme.typography.titleMedium,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.width(2.dp))
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = "删除「$typeLabel」$timeLabel 的记录",
+                modifier = Modifier.size(17.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private fun PunchEventEntity.typeLabel(): String =
+    PunchType.entries.firstOrNull { it.name == punchType }?.label ?: punchType
+
+private fun PunchEventEntity.sourceLabel(): String =
+    PunchSource.entries.firstOrNull { it.name == source }?.label ?: source
+
+/** 按钮动词与实际动作同名：开口说「开始加班」，完成说「结束加班」 */
+private fun PunchType.ctaLabel(): String = when (this) {
+    PunchType.WORK_START -> "上班打卡"
+    PunchType.WORK_END -> "下班打卡"
+    PunchType.OT_START -> "开始加班"
+    PunchType.OT_END -> "结束加班"
+}
+
+/** 成功提示沿用四类时间点的业务说法，避免「加班到打卡成功」这类别扭组合 */
+private fun PunchType.savedCopy(): String = when (this) {
+    PunchType.WORK_START -> "已记录上班时间"
+    PunchType.WORK_END -> "已记录下班时间"
+    PunchType.OT_START -> "已记录加班开始"
+    PunchType.OT_END -> "已记录加班结束"
+}
+
 private data class TodayStatus(
     val label: String,
     val actionType: PunchType?,
-    val actionLabel: String,
     val timerLabel: String
 )
 
@@ -437,10 +629,8 @@ private data class TodayLive(
     val regularMinutes: Int,
     val overtimeMinutes: Int,
     val liveSeconds: Long,
-    val openWorkSeconds: Long,
-    val openOtSeconds: Long,
-    val workOpen: Boolean,
-    val otOpen: Boolean
+    val workStartMillis: Long?,
+    val otStartMillis: Long?
 )
 
 private fun computeLiveTotals(
@@ -471,13 +661,12 @@ private fun computeLiveTotals(
     } else 0L
 
     return TodayLive(
-        regularMinutes = totals.regularMinutes,
-        overtimeMinutes = totals.overtimeMinutes,
+        // 进行中的段先按其会话类型计入，避免打卡前累计一直显示 0
+        regularMinutes = totals.regularMinutes + (openWorkSeconds / 60).toInt(),
+        overtimeMinutes = totals.overtimeMinutes + (openOtSeconds / 60).toInt(),
         liveSeconds = totals.netMinutes * 60L + openWorkSeconds + openOtSeconds,
-        openWorkSeconds = openWorkSeconds,
-        openOtSeconds = openOtSeconds,
-        workOpen = workOpen,
-        otOpen = otOpen
+        workStartMillis = if (workOpen) workStart?.punchTime else null,
+        otStartMillis = if (otOpen) otStart?.punchTime else null
     )
 }
 
@@ -524,14 +713,14 @@ private fun computeTodayStatus(
 
     return when {
         workStart == null && otStart == null ->
-            TodayStatus("未开始", PunchType.WORK_START, "上班打卡", timerLabel)
+            TodayStatus("未开始", PunchType.WORK_START, timerLabel)
         working ->
-            TodayStatus("工作中", PunchType.WORK_END, "下班打卡", timerLabel)
+            TodayStatus("工作中", PunchType.WORK_END, timerLabel)
         overtime ->
-            TodayStatus("加班中", PunchType.OT_END, "加班结束", timerLabel)
+            TodayStatus("加班中", PunchType.OT_END, timerLabel)
         workEnd != null && otStart == null ->
-            TodayStatus("已下班", PunchType.OT_START, "加班打卡", timerLabel)
+            TodayStatus("已下班", PunchType.OT_START, timerLabel)
         else ->
-            TodayStatus("今日已完成", null, "已完成", timerLabel)
+            TodayStatus("今日已完成", null, timerLabel)
     }
 }
