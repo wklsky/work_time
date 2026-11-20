@@ -112,7 +112,7 @@ class CustomThemeViewModel(
                 else -> "正文与卡片表面"
             }
             _state.value = current.copy(
-                message = "$reason对比度过低，文字会难以辨认，已取消本次修改"
+                message = "${reason}对比度过低，文字会难以辨认，已取消本次修改"
             )
             return
         }

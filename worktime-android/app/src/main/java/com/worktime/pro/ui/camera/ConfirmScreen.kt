@@ -429,6 +429,7 @@ fun ConfirmScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EntryRow(
     index: Int,
