@@ -121,9 +121,9 @@ fun TodayScreen(
             System.currentTimeMillis() + 1_000
         } else {
             val hasOpen = when (type) {
-                ReminderType.OVERTIME -> live.openOtSeconds > 0
-                ReminderType.WORK -> live.openWorkSeconds > 0
-                ReminderType.NET -> live.openWorkSeconds > 0 || live.openOtSeconds > 0
+                ReminderType.OVERTIME -> live.otOpen
+                ReminderType.WORK -> live.workOpen
+                ReminderType.NET -> live.workOpen || live.otOpen
             }
             if (!hasOpen) {
                 ReminderScheduler.cancel(context)
@@ -216,6 +216,9 @@ fun TodayScreen(
                     Button(
                         onClick = {
                             viewModel.quickPunch(actionType, LocalTime.now()) { error ->
+                                if (error == null) {
+                                    manualQuickTimes.remove(actionType)
+                                }
                                 Toast.makeText(
                                     context,
                                     error ?: "${actionType.label}打卡成功",
@@ -290,6 +293,10 @@ fun TodayScreen(
                         val type = quickType
                         val time = quickTime
                         viewModel.quickPunch(type, time) { error ->
+                            if (error == null) {
+                                // 下一段默认回到当前分钟，避免沿用上一段的旧时间
+                                manualQuickTimes.remove(type)
+                            }
                             Toast.makeText(
                                 context,
                                 error ?: "${type.label}打卡成功",
@@ -431,7 +438,9 @@ private data class TodayLive(
     val overtimeMinutes: Int,
     val liveSeconds: Long,
     val openWorkSeconds: Long,
-    val openOtSeconds: Long
+    val openOtSeconds: Long,
+    val workOpen: Boolean,
+    val otOpen: Boolean
 )
 
 private fun computeLiveTotals(
@@ -447,16 +456,18 @@ private fun computeLiveTotals(
     val otEnd = latest(PunchType.OT_END)
     val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
-    val openWorkSeconds = if (
-        workStart != null && (workEnd == null || workStart.punchTime > workEnd.punchTime)
-    ) {
-        ((nowMillis - workStart.punchTime) / 1000).coerceAtLeast(0)
+    // 结束卡与新开始卡同分钟时，结束优先、开始卡已开启新段，因此用 >= 判断开放段
+    val workOpen = workStart != null &&
+        (workEnd == null || workStart.punchTime >= workEnd.punchTime)
+    val otOpen = otStart != null &&
+        (otEnd == null || otStart.punchTime >= otEnd.punchTime)
+
+    val openWorkSeconds = if (workOpen) {
+        ((nowMillis - workStart!!.punchTime) / 1000).coerceAtLeast(0)
     } else 0L
 
-    val openOtSeconds = if (
-        otStart != null && (otEnd == null || otStart.punchTime > otEnd.punchTime)
-    ) {
-        ((nowMillis - otStart.punchTime) / 1000).coerceAtLeast(0)
+    val openOtSeconds = if (otOpen) {
+        ((nowMillis - otStart!!.punchTime) / 1000).coerceAtLeast(0)
     } else 0L
 
     return TodayLive(
@@ -464,7 +475,9 @@ private fun computeLiveTotals(
         overtimeMinutes = totals.overtimeMinutes,
         liveSeconds = totals.netMinutes * 60L + openWorkSeconds + openOtSeconds,
         openWorkSeconds = openWorkSeconds,
-        openOtSeconds = openOtSeconds
+        openOtSeconds = openOtSeconds,
+        workOpen = workOpen,
+        otOpen = otOpen
     )
 }
 
@@ -486,8 +499,8 @@ private fun allowedQuickTypesFor(events: List<PunchEventEntity>): Set<PunchType>
     val workEnd = latest(PunchType.WORK_END)
     val otStart = latest(PunchType.OT_START)
     val otEnd = latest(PunchType.OT_END)
-    val workOpen = workStart != null && (workEnd == null || workStart.punchTime > workEnd.punchTime)
-    val otOpen = otStart != null && (otEnd == null || otStart.punchTime > otEnd.punchTime)
+    val workOpen = workStart != null && (workEnd == null || workStart.punchTime >= workEnd.punchTime)
+    val otOpen = otStart != null && (otEnd == null || otStart.punchTime >= otEnd.punchTime)
     return when {
         workOpen -> setOf(PunchType.WORK_END)
         otOpen -> setOf(PunchType.OT_END)
@@ -506,8 +519,8 @@ private fun computeTodayStatus(
     val otStart = latest(PunchType.OT_START)
     val otEnd = latest(PunchType.OT_END)
 
-    val working = workStart != null && (workEnd == null || workStart.punchTime > workEnd.punchTime)
-    val overtime = otStart != null && (otEnd == null || otStart.punchTime > otEnd.punchTime)
+    val working = workStart != null && (workEnd == null || workStart.punchTime >= workEnd.punchTime)
+    val overtime = otStart != null && (otEnd == null || otStart.punchTime >= otEnd.punchTime)
 
     return when {
         workStart == null && otStart == null ->
