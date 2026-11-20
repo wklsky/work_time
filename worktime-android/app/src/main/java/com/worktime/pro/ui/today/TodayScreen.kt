@@ -39,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -54,9 +55,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.db.PunchEventEntity
+import com.worktime.pro.data.db.WorkSessionEntity
 import com.worktime.pro.data.db.toDayTotals
 import com.worktime.pro.domain.model.PunchSource
 import com.worktime.pro.domain.model.PunchType
+import com.worktime.pro.domain.reminder.ReminderScheduler
+import com.worktime.pro.domain.reminder.ReminderType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.util.TimeFormatter
@@ -82,6 +86,55 @@ fun TodayScreen(
     val settings by LocalSettings.current.settings.collectAsState(initial = AppSettings())
     val use24Hour = TimeFormatter.use24Hour(context, settings.timeFormat)
 
+    // 根据累计工作量排定/取消提醒；闹钟在后台也能触发
+    LaunchedEffect(
+        settings.reminderEnabled,
+        settings.reminderType,
+        settings.reminderMinutes,
+        settings.lastReminderKey,
+        state.today,
+        state.events,
+        state.sessions
+    ) {
+        if (!settings.reminderEnabled) {
+            ReminderScheduler.cancel(context)
+            return@LaunchedEffect
+        }
+        val type = ReminderType.entries.firstOrNull { it.value == settings.reminderType }
+            ?: ReminderType.OVERTIME
+        val live = computeLiveTotals(state.events, state.sessions, LocalDateTime.now())
+        val openWorkMinutes = (live.openWorkSeconds / 60).toInt()
+        val openOtMinutes = (live.openOtSeconds / 60).toInt()
+        val targetMinutes = when (type) {
+            ReminderType.OVERTIME -> live.overtimeMinutes + openOtMinutes
+            ReminderType.WORK -> live.regularMinutes + openWorkMinutes
+            ReminderType.NET -> live.regularMinutes + live.overtimeMinutes +
+                openWorkMinutes + openOtMinutes
+        }
+        val threshold = settings.reminderMinutes
+        val key = "${TimeFormatter.formatDateKey(state.today)}:${type.value}:$threshold"
+        if (settings.lastReminderKey == key) {
+            ReminderScheduler.cancel(context)
+            return@LaunchedEffect
+        }
+        val triggerAt = if (targetMinutes >= threshold) {
+            System.currentTimeMillis() + 1_000
+        } else {
+            val hasOpen = when (type) {
+                ReminderType.OVERTIME -> live.openOtSeconds > 0
+                ReminderType.WORK -> live.openWorkSeconds > 0
+                ReminderType.NET -> live.openWorkSeconds > 0 || live.openOtSeconds > 0
+            }
+            if (!hasOpen) {
+                ReminderScheduler.cancel(context)
+                return@LaunchedEffect
+            }
+            System.currentTimeMillis() +
+                (threshold - targetMinutes).coerceAtLeast(1) * 60_000L
+        }
+        ReminderScheduler.schedule(context, triggerAt, type, threshold, state.today)
+    }
+
     var quickType by remember { mutableStateOf(PunchType.WORK_START) }
     var pendingDelete by remember { mutableStateOf<PunchEventEntity?>(null) }
     // 仅记录用户手动选过的时间；未手动选择的类型跟随手机当前分钟自动刷新
@@ -102,9 +155,9 @@ fun TodayScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // 工作状态 hero：实时计时 + 下一步动作；正常/加班口径不重叠
-        val totals = state.sessions.toDayTotals()
-        val status = computeTodayStatus(state.events, now, totals.netMinutes)
+        // 工作状态 hero：多段累计实时计时 + 下一步动作
+        val live = computeLiveTotals(state.events, state.sessions, now)
+        val status = computeTodayStatus(state.events, formatClock(live.liveSeconds))
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
@@ -145,8 +198,8 @@ fun TodayScreen(
                     color = MaterialTheme.colorScheme.onPrimary
                 )
                 Text(
-                    "正常 ${TimeFormatter.formatDuration(totals.regularMinutes)} · " +
-                        "加班 ${TimeFormatter.formatDuration(totals.overtimeMinutes)}",
+                    "正常 ${TimeFormatter.formatDuration(live.regularMinutes)} · " +
+                        "加班 ${TimeFormatter.formatDuration(live.overtimeMinutes)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                 )
@@ -347,11 +400,64 @@ private data class TodayStatus(
     val timerLabel: String
 )
 
+/** 单日实时累计：已结算工时段 + 当前未闭合的上班/加班段 */
+private data class TodayLive(
+    val regularMinutes: Int,
+    val overtimeMinutes: Int,
+    val liveSeconds: Long,
+    val openWorkSeconds: Long,
+    val openOtSeconds: Long
+)
+
+private fun computeLiveTotals(
+    events: List<PunchEventEntity>,
+    sessions: List<WorkSessionEntity>,
+    now: LocalDateTime
+): TodayLive {
+    val totals = sessions.toDayTotals()
+    fun latest(type: PunchType) = events.lastOrNull { it.punchType == type.name }
+    val workStart = latest(PunchType.WORK_START)
+    val workEnd = latest(PunchType.WORK_END)
+    val otStart = latest(PunchType.OT_START)
+    val otEnd = latest(PunchType.OT_END)
+    val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+    val openWorkSeconds = if (
+        workStart != null && (workEnd == null || workStart.punchTime > workEnd.punchTime)
+    ) {
+        ((nowMillis - workStart.punchTime) / 1000).coerceAtLeast(0)
+    } else 0L
+
+    val openOtSeconds = if (
+        otStart != null && (otEnd == null || otStart.punchTime > otEnd.punchTime)
+    ) {
+        ((nowMillis - otStart.punchTime) / 1000).coerceAtLeast(0)
+    } else 0L
+
+    return TodayLive(
+        regularMinutes = totals.regularMinutes,
+        overtimeMinutes = totals.overtimeMinutes,
+        liveSeconds = totals.netMinutes * 60L + openWorkSeconds + openOtSeconds,
+        openWorkSeconds = openWorkSeconds,
+        openOtSeconds = openOtSeconds
+    )
+}
+
+private fun formatClock(totalSeconds: Long): String {
+    val safe = totalSeconds.coerceAtLeast(0)
+    return String.format(
+        Locale.US,
+        "%02d:%02d:%02d",
+        (safe / 3600).toInt(),
+        ((safe % 3600) / 60).toInt(),
+        (safe % 60).toInt()
+    )
+}
+
 /** 由四类打卡事件推导工作状态与下一步动作；多段时以最近一段是否闭合为准 */
 private fun computeTodayStatus(
     events: List<PunchEventEntity>,
-    now: LocalDateTime,
-    netMinutes: Int
+    timerLabel: String
 ): TodayStatus {
     fun latest(type: PunchType) = events.lastOrNull { it.punchType == type.name }
     val workStart = latest(PunchType.WORK_START)
@@ -362,35 +468,16 @@ private fun computeTodayStatus(
     val working = workStart != null && (workEnd == null || workStart.punchTime > workEnd.punchTime)
     val overtime = otStart != null && (otEnd == null || otStart.punchTime > otEnd.punchTime)
 
-    fun elapsed(start: PunchEventEntity?): String {
-        if (start == null) return "00:00:00"
-        val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val safeSeconds = ((nowMillis - start.punchTime) / 1000).coerceAtLeast(0)
-        return String.format(
-            Locale.US,
-            "%02d:%02d:%02d",
-            (safeSeconds / 3600).toInt(),
-            ((safeSeconds % 3600) / 60).toInt(),
-            (safeSeconds % 60).toInt()
-        )
-    }
-
-    val closedTimer = if (netMinutes > 0) {
-        TimeFormatter.formatDuration(netMinutes)
-    } else {
-        "00:00:00"
-    }
-
     return when {
         workStart == null && otStart == null ->
-            TodayStatus("未开始", PunchType.WORK_START, "上班打卡", "00:00:00")
+            TodayStatus("未开始", PunchType.WORK_START, "上班打卡", timerLabel)
         working ->
-            TodayStatus("工作中", PunchType.WORK_END, "下班打卡", elapsed(workStart))
+            TodayStatus("工作中", PunchType.WORK_END, "下班打卡", timerLabel)
         overtime ->
-            TodayStatus("加班中", PunchType.OT_END, "加班结束", elapsed(otStart))
+            TodayStatus("加班中", PunchType.OT_END, "加班结束", timerLabel)
         workEnd != null && otStart == null ->
-            TodayStatus("已下班", PunchType.OT_START, "加班打卡", closedTimer)
+            TodayStatus("已下班", PunchType.OT_START, "加班打卡", timerLabel)
         else ->
-            TodayStatus("今日已完成", null, "已完成", closedTimer)
+            TodayStatus("今日已完成", null, "已完成", timerLabel)
     }
 }

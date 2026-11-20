@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Storage
@@ -48,6 +49,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -74,11 +77,13 @@ import com.worktime.pro.data.datastore.ThemeMode
 import com.worktime.pro.data.datastore.TimeFormatMode
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.domain.ocr.StatusMapping
+import com.worktime.pro.domain.reminder.ReminderType
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.ui.theme.CustomPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsScreen(
@@ -158,6 +163,17 @@ fun SettingsScreen(
             viewModel.setGallerySaveEnabled(true)
         } else {
             Toast.makeText(context, "未授予存储权限，照片只会保存在应用内", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Android 13+ 发送提醒需要通知权限
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.setReminderEnabled(true)
+        } else {
+            Toast.makeText(context, "未授予通知权限，提醒无法发送", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -367,6 +383,79 @@ fun SettingsScreen(
                         )
                     }
                     TextButton(onClick = onOpenHabits) { Text("管理") }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                SectionTitle(icon = Icons.Filled.Notifications, title = "提醒")
+                SwitchRow(
+                    title = "累计提醒",
+                    description = "达到设定时长后发送系统通知，后台可能略有延迟",
+                    checked = settings.reminderEnabled,
+                    onCheckedChange = { enabled ->
+                        val needsPermission = enabled &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED
+                        if (needsPermission) {
+                            notificationPermissionLauncher.launch(
+                                Manifest.permission.POST_NOTIFICATIONS
+                            )
+                        } else {
+                            viewModel.setReminderEnabled(enabled)
+                        }
+                    }
+                )
+                if (settings.reminderEnabled) {
+                    Text("提醒类型", style = MaterialTheme.typography.bodyMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ReminderType.entries.forEach { type ->
+                            FilterChip(
+                                selected = settings.reminderType == type.value,
+                                onClick = { viewModel.setReminderType(type) },
+                                label = { Text(type.label) }
+                            )
+                        }
+                    }
+
+                    var reminderValue by remember(settings.reminderMinutes) {
+                        mutableFloatStateOf(settings.reminderMinutes.toFloat())
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("提醒阈值", modifier = Modifier.weight(1f))
+                        Text(
+                            TimeFormatter.formatDuration(
+                                (reminderValue / 30f).roundToInt() * 30
+                            ),
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Slider(
+                        value = reminderValue,
+                        onValueChange = { reminderValue = it },
+                        onValueChangeFinished = {
+                            viewModel.setReminderMinutes(
+                                (reminderValue / 30f).roundToInt() * 30
+                            )
+                        },
+                        valueRange = 60f..720f,
+                        steps = 21
+                    )
+                    Text(
+                        "例如加班满 7 小时提醒；达到阈值提醒一次，修改类型或阈值后可再次提醒。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

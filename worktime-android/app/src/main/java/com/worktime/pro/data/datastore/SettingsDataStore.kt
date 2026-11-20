@@ -11,8 +11,10 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.worktime.pro.domain.reminder.ReminderType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -60,7 +62,13 @@ data class AppSettings(
     val customLightColors: String = "",
     val customDarkColors: String = "",
     /** 字号缩放：0.9 / 1.0 / 1.15 */
-    val fontScale: Float = 1f
+    val fontScale: Float = 1f,
+    /** 累计工时提醒：达到类型阈值后发送系统通知 */
+    val reminderEnabled: Boolean = false,
+    val reminderType: String = ReminderType.OVERTIME.value,
+    val reminderMinutes: Int = 420,
+    /** 最近一次已提醒的标记，避免同一天重复通知 */
+    val lastReminderKey: String = ""
 )
 
 class SettingsDataStore(private val context: Context) {
@@ -78,6 +86,10 @@ class SettingsDataStore(private val context: Context) {
         val CUSTOM_LIGHT = stringPreferencesKey("custom_light_colors")
         val CUSTOM_DARK = stringPreferencesKey("custom_dark_colors")
         val FONT_SCALE = floatPreferencesKey("font_scale")
+        val REMINDER_ENABLED = booleanPreferencesKey("reminder_enabled")
+        val REMINDER_TYPE = stringPreferencesKey("reminder_type")
+        val REMINDER_MINUTES = intPreferencesKey("reminder_minutes")
+        val LAST_REMINDER_KEY = stringPreferencesKey("last_reminder_key")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -94,7 +106,11 @@ class SettingsDataStore(private val context: Context) {
             customThemeEnabled = prefs[Keys.CUSTOM_THEME] ?: false,
             customLightColors = prefs[Keys.CUSTOM_LIGHT] ?: "",
             customDarkColors = prefs[Keys.CUSTOM_DARK] ?: "",
-            fontScale = prefs[Keys.FONT_SCALE] ?: 1f
+            fontScale = prefs[Keys.FONT_SCALE] ?: 1f,
+            reminderEnabled = prefs[Keys.REMINDER_ENABLED] ?: false,
+            reminderType = prefs[Keys.REMINDER_TYPE] ?: ReminderType.OVERTIME.value,
+            reminderMinutes = prefs[Keys.REMINDER_MINUTES] ?: 420,
+            lastReminderKey = prefs[Keys.LAST_REMINDER_KEY] ?: ""
         )
     }
 
@@ -136,4 +152,16 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setFontScale(value: Float) =
         context.dataStore.edit { it[Keys.FONT_SCALE] = value.coerceIn(0.8f, 1.3f) }
+
+    suspend fun setReminderEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.REMINDER_ENABLED] = enabled }
+
+    suspend fun setReminderType(value: String) =
+        context.dataStore.edit { it[Keys.REMINDER_TYPE] = value }
+
+    suspend fun setReminderMinutes(value: Int) =
+        context.dataStore.edit { it[Keys.REMINDER_MINUTES] = value.coerceIn(60, 720) }
+
+    suspend fun setLastReminderKey(value: String) =
+        context.dataStore.edit { it[Keys.LAST_REMINDER_KEY] = value }
 }

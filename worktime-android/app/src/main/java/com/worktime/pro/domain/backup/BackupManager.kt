@@ -53,6 +53,9 @@ class BackupManager(
                 put("customLightColors", settings.customLightColors)
                 put("customDarkColors", settings.customDarkColors)
                 put("fontScale", settings.fontScale.toDouble())
+                put("reminderEnabled", settings.reminderEnabled)
+                put("reminderType", settings.reminderType)
+                put("reminderMinutes", settings.reminderMinutes)
             })
         }
         val dir = File(context.filesDir, Constants.BACKUP_DIR).apply { mkdirs() }
@@ -202,6 +205,17 @@ class BackupManager(
             if (saved.has("fontScale")) {
                 settingsDataStore.setFontScale(saved.optDouble("fontScale", 1.0).toFloat())
             }
+            if (saved.has("reminderEnabled")) {
+                settingsDataStore.setReminderEnabled(saved.optBoolean("reminderEnabled"))
+            }
+            saved.optString("reminderType").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setReminderType(it)
+            }
+            if (saved.has("reminderMinutes")) {
+                settingsDataStore.setReminderMinutes(saved.optInt("reminderMinutes", 420))
+            }
+            // 换机/恢复后重新允许当天提醒
+            settingsDataStore.setLastReminderKey("")
         }
         Result.success(Unit)
     } catch (e: Exception) {

@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.worktime.pro.data.datastore.CalendarDisplayMode
 import com.worktime.pro.data.datastore.SettingsDataStore
+import com.worktime.pro.domain.reminder.ReminderType
 import com.worktime.pro.domain.repository.WorkTimeRepository
 import kotlinx.coroutines.launch
 
@@ -50,5 +51,17 @@ class SettingsViewModel(
 
     fun setTimeFormat(mode: com.worktime.pro.data.datastore.TimeFormatMode) {
         viewModelScope.launch { settings.setTimeFormat(mode.value) }
+    }
+
+    fun setReminderEnabled(enabled: Boolean) {
+        viewModelScope.launch { settings.setReminderEnabled(enabled) }
+    }
+
+    fun setReminderType(type: ReminderType) {
+        viewModelScope.launch { settings.setReminderType(type.value) }
+    }
+
+    fun setReminderMinutes(minutes: Int) {
+        viewModelScope.launch { settings.setReminderMinutes(minutes) }
     }
 }
