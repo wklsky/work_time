@@ -29,6 +29,14 @@ enum class TimeFormatMode(val value: String) {
     HOUR_12("12H")
 }
 
+/** 主题模式：跟随系统 / 浅色 / 深色 / 黑白（纯灰阶高对比） */
+enum class ThemeMode(val value: String, val label: String) {
+    SYSTEM("SYSTEM", "跟随系统"),
+    LIGHT("LIGHT", "浅色"),
+    DARK("DARK", "深色"),
+    BLACK_WHITE("BLACK_WHITE", "黑白")
+}
+
 data class AppSettings(
     val calendarDisplayMode: String = CalendarDisplayMode.WORK_TIME.value,
     val timeFormat: String = TimeFormatMode.SYSTEM.value,
@@ -37,7 +45,9 @@ data class AppSettings(
     val ocrAutoFill: Boolean = true,
     val backupIncludePhotos: Boolean = false,
     /** 用户自定义的考勤机状态映射，序列化字符串；空串表示使用默认映射 */
-    val statusMapping: String = ""
+    val statusMapping: String = "",
+    /** 主题模式，默认跟随系统 */
+    val themeMode: String = ThemeMode.SYSTEM.value
 )
 
 class SettingsDataStore(private val context: Context) {
@@ -49,6 +59,7 @@ class SettingsDataStore(private val context: Context) {
         val OCR_AUTO_FILL = booleanPreferencesKey("ocr_auto_fill")
         val BACKUP_PHOTOS = booleanPreferencesKey("backup_include_photos")
         val STATUS_MAPPING = stringPreferencesKey("status_mapping")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -59,7 +70,8 @@ class SettingsDataStore(private val context: Context) {
             defaultInputMode = prefs[Keys.DEFAULT_INPUT] ?: "OCR",
             ocrAutoFill = prefs[Keys.OCR_AUTO_FILL] ?: true,
             backupIncludePhotos = prefs[Keys.BACKUP_PHOTOS] ?: false,
-            statusMapping = prefs[Keys.STATUS_MAPPING] ?: ""
+            statusMapping = prefs[Keys.STATUS_MAPPING] ?: "",
+            themeMode = prefs[Keys.THEME_MODE] ?: ThemeMode.SYSTEM.value
         )
     }
 
@@ -83,4 +95,7 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setStatusMapping(value: String) =
         context.dataStore.edit { it[Keys.STATUS_MAPPING] = value }
+
+    suspend fun setThemeMode(mode: String) =
+        context.dataStore.edit { it[Keys.THEME_MODE] = mode }
 }

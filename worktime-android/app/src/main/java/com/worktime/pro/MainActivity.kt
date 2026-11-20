@@ -9,6 +9,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -31,7 +33,11 @@ class MainActivity : ComponentActivity() {
         val factory = ViewModelFactory(app.repository, app.settings, app.backupManager)
 
         setContent {
-            WorkTimeTheme {
+            // 主题设置实时生效：用户切换后立即重组应用新配色
+            val settings by app.settings.settings.collectAsState(
+                initial = com.worktime.pro.data.datastore.AppSettings()
+            )
+            WorkTimeTheme(themeMode = settings.themeMode) {
                 CompositionLocalProvider(
                     LocalRepository provides app.repository,
                     LocalSettings provides app.settings
