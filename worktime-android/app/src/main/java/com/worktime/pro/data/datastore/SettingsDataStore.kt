@@ -35,7 +35,9 @@ data class AppSettings(
     val showOvertimeShade: Boolean = true,
     val defaultInputMode: String = "OCR",
     val ocrAutoFill: Boolean = true,
-    val backupIncludePhotos: Boolean = false
+    val backupIncludePhotos: Boolean = false,
+    /** 用户自定义的考勤机状态映射，序列化字符串；空串表示使用默认映射 */
+    val statusMapping: String = ""
 )
 
 class SettingsDataStore(private val context: Context) {
@@ -46,6 +48,7 @@ class SettingsDataStore(private val context: Context) {
         val DEFAULT_INPUT = stringPreferencesKey("default_input_mode")
         val OCR_AUTO_FILL = booleanPreferencesKey("ocr_auto_fill")
         val BACKUP_PHOTOS = booleanPreferencesKey("backup_include_photos")
+        val STATUS_MAPPING = stringPreferencesKey("status_mapping")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -55,7 +58,8 @@ class SettingsDataStore(private val context: Context) {
             showOvertimeShade = prefs[Keys.OVERTIME_SHADE] ?: true,
             defaultInputMode = prefs[Keys.DEFAULT_INPUT] ?: "OCR",
             ocrAutoFill = prefs[Keys.OCR_AUTO_FILL] ?: true,
-            backupIncludePhotos = prefs[Keys.BACKUP_PHOTOS] ?: false
+            backupIncludePhotos = prefs[Keys.BACKUP_PHOTOS] ?: false,
+            statusMapping = prefs[Keys.STATUS_MAPPING] ?: ""
         )
     }
 
@@ -76,4 +80,7 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setBackupIncludePhotos(enabled: Boolean) =
         context.dataStore.edit { it[Keys.BACKUP_PHOTOS] = enabled }
+
+    suspend fun setStatusMapping(value: String) =
+        context.dataStore.edit { it[Keys.STATUS_MAPPING] = value }
 }

@@ -29,16 +29,25 @@ class OcrFieldExtractor {
     /**
      * 从 ML Kit 识别结果抽取候选。
      * 业务规则：实拍考勤机为表格，每行"[工号][姓名][MM-DD HH:MM][F][状态数字]"；
-     * 类型由末尾状态列数字判定（0/1/4/5），屏幕底部图例行"F:指纹 5:加班签退"无时间，自动排除。
+     * 类型由末尾状态列数字按用户自定义映射判定，屏幕底部图例行无时间，自动排除。
      */
-    fun extract(text: Text, photoDate: LocalDate = LocalDate.now()): List<OcrCandidate> =
-        extractFromLines(text.textBlocks.flatMap { block -> block.lines.map { it.text } }, photoDate)
+    fun extract(
+        text: Text,
+        photoDate: LocalDate = LocalDate.now(),
+        statusMapping: Map<String, PunchType> = StatusMapping.DEFAULT
+    ): List<OcrCandidate> =
+        extractFromLines(text.textBlocks.flatMap { block -> block.lines.map { it.text } }, photoDate, statusMapping)
 
     /**
      * 基于文本行的抽取逻辑，剥离 ML Kit 依赖以便单元测试覆盖真实考勤机版式。
      * @param photoDate 拍照当天日期，用于把屏幕上的"MM-DD"补全为完整年份
+     * @param statusMapping 用户自定义的状态数字→类型映射
      */
-    fun extractFromLines(lines: List<String>, photoDate: LocalDate = LocalDate.now()): List<OcrCandidate> {
+    fun extractFromLines(
+        lines: List<String>,
+        photoDate: LocalDate = LocalDate.now(),
+        statusMapping: Map<String, PunchType> = StatusMapping.DEFAULT
+    ): List<OcrCandidate> {
         val candidates = mutableListOf<OcrCandidate>()
         for (lineText in lines) {
             val dateTime = dateTimeRegex.find(lineText)
@@ -53,7 +62,7 @@ class OcrFieldExtractor {
                 if (date == null || time == null) continue
 
                 val status = extractStatusCode(lineText, dateTime.range.last)
-                val type = status?.let { PunchType.fromStatusCode(it) }
+                val type = status?.let { statusMapping[it] }
                 if (type != null) {
                     candidates += OcrCandidate(type, date, time, Confidence.HIGH, lineText)
                 } else {

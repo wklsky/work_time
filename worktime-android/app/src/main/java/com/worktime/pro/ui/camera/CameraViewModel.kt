@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -66,10 +67,17 @@ class CameraViewModel(
         viewModelScope.launch {
             _confirmState.value = _confirmState.value.copy(isRecognizing = true, error = null)
             try {
+                // 读取用户自定义状态映射，空串时回退到默认编码
+                val mappingRaw = settings.settings.first().statusMapping
+                val mapping = if (mappingRaw.isBlank()) {
+                    com.worktime.pro.domain.ocr.StatusMapping.DEFAULT
+                } else {
+                    com.worktime.pro.domain.ocr.StatusMapping.deserialize(mappingRaw)
+                }
                 val candidates = withContext(Dispatchers.Default) {
                     val image = InputImage.fromBitmap(bitmap, 0)
                     val visionText = recognizer.process(image).await()
-                    extractor.extract(visionText)
+                    extractor.extract(visionText, statusMapping = mapping)
                 }
                 val path = saveImage(bitmap, context)
                 _confirmState.value = _confirmState.value.copy(
