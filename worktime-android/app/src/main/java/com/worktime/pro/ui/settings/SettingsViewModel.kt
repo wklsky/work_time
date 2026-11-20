@@ -29,4 +29,14 @@ class SettingsViewModel(
     fun setOcrAutoFill(enabled: Boolean) {
         viewModelScope.launch { settings.setOcrAutoFill(enabled) }
     }
+
+    /** 保存用户自定义的考勤机状态映射，传入序列化字符串 */
+    fun setStatusMapping(value: String) {
+        viewModelScope.launch { settings.setStatusMapping(value) }
+    }
+
+    /** 恢复默认状态映射：写入空串，识别时自动回退到内置编码 */
+    fun resetStatusMapping() {
+        viewModelScope.launch { settings.setStatusMapping("") }
+    }
 }

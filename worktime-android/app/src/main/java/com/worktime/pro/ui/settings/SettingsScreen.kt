@@ -42,6 +42,8 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
+import com.worktime.pro.domain.model.PunchType
+import com.worktime.pro.domain.ocr.StatusMapping
 import com.worktime.pro.ui.ViewModelFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -134,6 +136,25 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(16.dp))
 
+        // 状态映射：考勤机状态列数字 → 打卡类型，用户可按机器编码自定义
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("考勤机状态映射", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "设置考勤机状态列数字对应的打卡类型，识别时按此映射判定。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                StatusMappingEditor(
+                    raw = settings.statusMapping,
+                    onChanged = { viewModel.setStatusMapping(it) },
+                    onReset = { viewModel.resetStatusMapping() }
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("数据管理", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -191,5 +212,52 @@ private fun SwitchRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * 状态映射编辑器：考勤机状态列数字（0-9）→ 打卡类型。
+ * raw 为空时展示内置默认映射，用户改动后才写入自定义值。
+ */
+@Composable
+private fun StatusMappingEditor(
+    raw: String,
+    onChanged: (String) -> Unit,
+    onReset: () -> Unit
+) {
+    val mapping = if (raw.isBlank()) StatusMapping.DEFAULT else StatusMapping.deserialize(raw)
+    // 只展示 0-9 状态位，覆盖常见考勤机编码
+    val statusCodes = (0..9).map { it.toString() }
+    val typeOptions = listOf(
+        null to "无",
+        PunchType.WORK_START to "上班",
+        PunchType.WORK_END to "下班",
+        PunchType.OT_START to "加班到",
+        PunchType.OT_END to "加班退"
+    )
+
+    statusCodes.forEach { code ->
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("状态 $code", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            typeOptions.forEach { (type, label) ->
+                FilterChip(
+                    selected = mapping[code] == type,
+                    onClick = {
+                        val updated = mapping.toMutableMap()
+                        if (type == null) updated.remove(code) else updated[code] = type
+                        onChanged(StatusMapping.serialize(updated))
+                    },
+                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                    modifier = Modifier.padding(start = 2.dp)
+                )
+            }
+        }
+    }
+
+    TextButton(onClick = onReset) {
+        Text("恢复默认映射（0上班 1下班 4加班到 5加班退）")
     }
 }
