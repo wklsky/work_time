@@ -10,6 +10,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -45,11 +46,21 @@ data class AppSettings(
     val showOvertimeShade: Boolean = true,
     val defaultInputMode: String = "OCR",
     val ocrAutoFill: Boolean = true,
-    val backupIncludePhotos: Boolean = false,
+    /** 确认保存后是否同时写入系统相册（备份永远不含照片） */
+    val gallerySaveEnabled: Boolean = true,
     /** 用户自定义的考勤机状态映射，序列化字符串；空串表示使用默认映射 */
     val statusMapping: String = "",
     /** 默认白天（浅色）模式，界面更明亮清晰 */
-    val themeMode: String = ThemeMode.LIGHT.value
+    val themeMode: String = ThemeMode.LIGHT.value,
+    /** 习惯打卡列表，序列化字符串；空串表示无习惯 */
+    val habits: String = "",
+    /** 启用用户自定义配色（黑白模式不受影响） */
+    val customThemeEnabled: Boolean = false,
+    /** 浅色/深色自定义配色，序列化 ARGB 列表；空串表示使用预设 */
+    val customLightColors: String = "",
+    val customDarkColors: String = "",
+    /** 字号缩放：0.9 / 1.0 / 1.15 */
+    val fontScale: Float = 1f
 )
 
 class SettingsDataStore(private val context: Context) {
@@ -59,9 +70,14 @@ class SettingsDataStore(private val context: Context) {
         val OVERTIME_SHADE = booleanPreferencesKey("show_overtime_shade")
         val DEFAULT_INPUT = stringPreferencesKey("default_input_mode")
         val OCR_AUTO_FILL = booleanPreferencesKey("ocr_auto_fill")
-        val BACKUP_PHOTOS = booleanPreferencesKey("backup_include_photos")
+        val GALLERY_SAVE = booleanPreferencesKey("gallery_save_enabled")
         val STATUS_MAPPING = stringPreferencesKey("status_mapping")
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val HABITS = stringPreferencesKey("punch_habits")
+        val CUSTOM_THEME = booleanPreferencesKey("custom_theme_enabled")
+        val CUSTOM_LIGHT = stringPreferencesKey("custom_light_colors")
+        val CUSTOM_DARK = stringPreferencesKey("custom_dark_colors")
+        val FONT_SCALE = floatPreferencesKey("font_scale")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -71,9 +87,14 @@ class SettingsDataStore(private val context: Context) {
             showOvertimeShade = prefs[Keys.OVERTIME_SHADE] ?: true,
             defaultInputMode = prefs[Keys.DEFAULT_INPUT] ?: "OCR",
             ocrAutoFill = prefs[Keys.OCR_AUTO_FILL] ?: true,
-            backupIncludePhotos = prefs[Keys.BACKUP_PHOTOS] ?: false,
+            gallerySaveEnabled = prefs[Keys.GALLERY_SAVE] ?: true,
             statusMapping = prefs[Keys.STATUS_MAPPING] ?: "",
-            themeMode = prefs[Keys.THEME_MODE] ?: ThemeMode.LIGHT.value
+            themeMode = prefs[Keys.THEME_MODE] ?: ThemeMode.LIGHT.value,
+            habits = prefs[Keys.HABITS] ?: "",
+            customThemeEnabled = prefs[Keys.CUSTOM_THEME] ?: false,
+            customLightColors = prefs[Keys.CUSTOM_LIGHT] ?: "",
+            customDarkColors = prefs[Keys.CUSTOM_DARK] ?: "",
+            fontScale = prefs[Keys.FONT_SCALE] ?: 1f
         )
     }
 
@@ -92,12 +113,27 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setDefaultInputMode(mode: String) =
         context.dataStore.edit { it[Keys.DEFAULT_INPUT] = mode }
 
-    suspend fun setBackupIncludePhotos(enabled: Boolean) =
-        context.dataStore.edit { it[Keys.BACKUP_PHOTOS] = enabled }
+    suspend fun setGallerySaveEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.GALLERY_SAVE] = enabled }
 
     suspend fun setStatusMapping(value: String) =
         context.dataStore.edit { it[Keys.STATUS_MAPPING] = value }
 
     suspend fun setThemeMode(mode: String) =
         context.dataStore.edit { it[Keys.THEME_MODE] = mode }
+
+    suspend fun setHabits(value: String) =
+        context.dataStore.edit { it[Keys.HABITS] = value }
+
+    suspend fun setCustomThemeEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.CUSTOM_THEME] = enabled }
+
+    suspend fun setCustomLightColors(value: String) =
+        context.dataStore.edit { it[Keys.CUSTOM_LIGHT] = value }
+
+    suspend fun setCustomDarkColors(value: String) =
+        context.dataStore.edit { it[Keys.CUSTOM_DARK] = value }
+
+    suspend fun setFontScale(value: Float) =
+        context.dataStore.edit { it[Keys.FONT_SCALE] = value.coerceIn(0.8f, 1.3f) }
 }

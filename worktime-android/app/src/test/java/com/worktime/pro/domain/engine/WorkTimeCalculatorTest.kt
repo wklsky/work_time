@@ -21,7 +21,7 @@ class WorkTimeCalculatorTest {
         restStart = LocalTime.of(12, 0),
         restEnd = LocalTime.of(13, 0),
         bufferMinutes = 30,
-        standardMinutes = 540,
+        standardMinutes = 480,
         dayCutTime = LocalTime.of(4, 0),
         workDays = listOf(1, 2, 3, 4, 5)
     )
@@ -60,7 +60,7 @@ class WorkTimeCalculatorTest {
     fun `workday overtime`() {
         val r = calculator.calculate(dt(20, 9, 0), dt(20, 20, 0), rule)
         assertEquals(600, r.workMinutes)
-        assertEquals(30, r.overtimeMinutes)
+        assertEquals(90, r.overtimeMinutes)
     }
 
     // 5. 跨天工作：22:00-次日 02:00
@@ -103,7 +103,7 @@ class WorkTimeCalculatorTest {
         val before = calculator.calculate(dt(20, 9, 0), dt(20, 18, 0), rule)
         val after = calculator.calculate(dt(20, 9, 0), dt(20, 20, 0), rule)
         assertEquals(0, before.overtimeMinutes)
-        assertEquals(30, after.overtimeMinutes)
+        assertEquals(90, after.overtimeMinutes)
     }
 
     // 10. 日切归属：凌晨 03:00 打卡归前一日
@@ -125,7 +125,7 @@ class WorkTimeCalculatorTest {
     @Test
     fun `cross day rest overlap fixed`() {
         val r = calculator.calculate(dt(20, 13, 30), dt(21, 12, 30), rule)
-        // 总 1380 分，午休 30 分，净 1350 分；工作日标准 540 + 缓冲 30 → 加班 780
+        // 总 1380 分，午休 30 分，净 1350 分；工作日标准 480 + 缓冲 30 → 加班 840
         assertEquals(30, r.restMinutes)
         assertEquals(1350, r.workMinutes)
     }

@@ -11,10 +11,15 @@ import com.worktime.pro.data.datastore.SettingsDataStore
 import com.worktime.pro.data.db.PunchEventDao
 import com.worktime.pro.data.db.WorkRuleDao
 import com.worktime.pro.data.db.WorkSessionDao
+import com.worktime.pro.data.db.toDayTotals
 import com.worktime.pro.util.Constants
+import com.worktime.pro.domain.model.PunchType
+import com.worktime.pro.util.TimeFormatter
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
 
 class BackupManager(
     private val context: Context,
@@ -40,9 +45,14 @@ class BackupManager(
                 put("showOvertimeShade", settings.showOvertimeShade)
                 put("defaultInputMode", settings.defaultInputMode)
                 put("ocrAutoFill", settings.ocrAutoFill)
-                put("backupIncludePhotos", settings.backupIncludePhotos)
+                put("gallerySaveEnabled", settings.gallerySaveEnabled)
                 put("statusMapping", settings.statusMapping)
                 put("themeMode", settings.themeMode)
+                put("habits", settings.habits)
+                put("customThemeEnabled", settings.customThemeEnabled)
+                put("customLightColors", settings.customLightColors)
+                put("customDarkColors", settings.customDarkColors)
+                put("fontScale", settings.fontScale.toDouble())
             })
         }
         val dir = File(context.filesDir, Constants.BACKUP_DIR).apply { mkdirs() }
@@ -66,6 +76,72 @@ class BackupManager(
         Result.failure(e)
     }
 
+    /** 备份摘要：导入确认弹窗展示导出时间与记录条数，让用户确认选对了文件 */
+    data class Summary(val exportTime: Long, val eventCount: Int, val sessionCount: Int)
+
+    fun readSummary(file: File): Result<Summary> = try {
+        val json = JSONObject(file.readText(Charsets.UTF_8))
+        if (json.optString("version") != Constants.BACKUP_VERSION) {
+            throw IllegalArgumentException("备份版本不兼容")
+        }
+        Result.success(
+            Summary(
+                exportTime = json.optLong("exportTime"),
+                eventCount = json.optJSONArray("punchEvents")?.length() ?: 0,
+                sessionCount = json.optJSONArray("workSessions")?.length() ?: 0
+            )
+        )
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    /**
+     * 导出可读的工时明细 CSV：按日期汇总四类打卡时刻与工时，供用户用表格软件打开观看。
+     * 业务说明：JSON 备份用于换机恢复，但普通用户无法直接阅读；CSV 满足"导出数据观看"诉求。
+     * 中文用 UTF-8 BOM 开头，避免 Excel 打开乱码。
+     */
+    suspend fun exportCsv(): Result<String> = try {
+        val events = punchDao.getAll()
+        val sessions = sessionDao.getAll()
+        val eventsByDate = events.groupBy { it.workDate }
+        val sessionsByDate = sessions.groupBy { it.workDate }
+        val allDates = (eventsByDate.keys + sessionsByDate.keys).sorted()
+
+        val sb = StringBuilder()
+        sb.append('\uFEFF') // UTF-8 BOM for Excel
+        sb.append("日期,上班,下班,加班到,加班退,工作时长(小时),加班时长(小时),工时明细\n")
+        allDates.forEach { date ->
+            val dayEvents = eventsByDate[date].orEmpty()
+            fun firstTime(type: String) = dayEvents.firstOrNull { it.punchType == type }
+                ?.let { Instant.ofEpochMilli(it.punchTime).atZone(ZoneId.systemDefault()).toLocalTime().toString() }
+                .orEmpty()
+            val daySessions = sessionsByDate[date].orEmpty()
+            val totals = daySessions.toDayTotals()
+            val regular = totals.regularMinutes
+            val overtime = totals.overtimeMinutes
+            val formula = daySessions.joinToString("; ") { it.formula }
+            sb.append(listOf(
+                date,
+                firstTime(PunchType.WORK_START.name),
+                firstTime(PunchType.WORK_END.name),
+                firstTime(PunchType.OT_START.name),
+                firstTime(PunchType.OT_END.name),
+                if (regular > 0) TimeFormatter.formatHours(regular).removeSuffix("h") else "0",
+                if (overtime > 0) TimeFormatter.formatHours(overtime).removeSuffix("h") else "0",
+                formula
+            ).joinToString(",") { csvEscape(it) }).append('\n')
+        }
+        Result.success(sb.toString())
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    /** CSV 字段转义：含逗号/引号/换行的值用双引号包裹，内部引号翻倍 */
+    private fun csvEscape(value: String): String =
+        if (value.any { it == ',' || it == '"' || it == '\n' }) {
+            "\"${value.replace("\"", "\"\"")}\""
+        } else value
+
     /**
      * 从备份文件恢复数据：先清空三张表再批量写回。
      * 业务要求：导入是覆盖操作，调用方（UI）必须先二次确认；此处只负责数据落地。
@@ -85,11 +161,42 @@ class BackupManager(
         punchDao.insertAll(events)
         sessionDao.insertAll(sessions)
         ruleDao.insertAll(rules)
-        // 恢复用户自定义状态映射，保证换机/重装后识别规则一致
+        // 恢复全部设置，保证换机/重装后行为一致；备份不含照片
         json.optJSONObject("settings")?.let { saved ->
             saved.optString("statusMapping").let { settingsDataStore.setStatusMapping(it) }
             saved.optString("themeMode").takeIf { it.isNotBlank() }?.let {
                 settingsDataStore.setThemeMode(it)
+            }
+            saved.optString("habits").let { settingsDataStore.setHabits(it) }
+            saved.optString("calendarDisplayMode").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setCalendarDisplayMode(it)
+            }
+            saved.optString("timeFormat").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setTimeFormat(it)
+            }
+            saved.optString("defaultInputMode").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setDefaultInputMode(it)
+            }
+            if (saved.has("showOvertimeShade")) {
+                settingsDataStore.setOvertimeShade(saved.optBoolean("showOvertimeShade"))
+            }
+            if (saved.has("ocrAutoFill")) {
+                settingsDataStore.setOcrAutoFill(saved.optBoolean("ocrAutoFill"))
+            }
+            if (saved.has("gallerySaveEnabled")) {
+                settingsDataStore.setGallerySaveEnabled(saved.optBoolean("gallerySaveEnabled"))
+            }
+            if (saved.has("customThemeEnabled")) {
+                settingsDataStore.setCustomThemeEnabled(saved.optBoolean("customThemeEnabled"))
+            }
+            saved.optString("customLightColors").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setCustomLightColors(it)
+            }
+            saved.optString("customDarkColors").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setCustomDarkColors(it)
+            }
+            if (saved.has("fontScale")) {
+                settingsDataStore.setFontScale(saved.optDouble("fontScale", 1.0).toFloat())
             }
         }
         Result.success(Unit)

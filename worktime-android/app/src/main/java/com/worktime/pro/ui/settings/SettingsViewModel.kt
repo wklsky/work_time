@@ -30,6 +30,10 @@ class SettingsViewModel(
         viewModelScope.launch { settings.setOcrAutoFill(enabled) }
     }
 
+    fun setGallerySaveEnabled(enabled: Boolean) {
+        viewModelScope.launch { settings.setGallerySaveEnabled(enabled) }
+    }
+
     /** 保存用户自定义的考勤机状态映射，传入序列化字符串 */
     fun setStatusMapping(value: String) {
         viewModelScope.launch { settings.setStatusMapping(value) }

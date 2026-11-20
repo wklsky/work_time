@@ -13,6 +13,24 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+/** 月历聚合：单日正常/加班分钟与工时段数量，一次查询覆盖整个月视图 */
+data class DayAggregate(
+    val workDate: String,
+    val regularMinutes: Int,
+    val overtimeMinutes: Int,
+    val sessionCount: Int
+)
+
+/** 单日四类打卡计数，用于判断缺卡（上班/下班、加班到/加班退是否成对） */
+data class DayPunchCounts(
+    val workDate: String,
+    val workStarts: Int,
+    val workEnds: Int,
+    val otStarts: Int,
+    val otEnds: Int,
+    val eventCount: Int
+)
+
 @Dao
 interface PunchEventDao {
     /** 查询某日全部打卡事件（时间升序），供日详情与重算使用 */
@@ -31,6 +49,22 @@ interface PunchEventDao {
 
     @Query("SELECT DISTINCT workDate FROM punch_event WHERE workDate BETWEEN :start AND :end ORDER BY workDate")
     suspend fun getDatesInRange(start: String, end: String): List<String>
+
+    /** 月历缺卡判定所需的四类打卡计数 */
+    @Query(
+        """
+        SELECT workDate,
+               SUM(CASE WHEN punchType = 'WORK_START' THEN 1 ELSE 0 END) AS workStarts,
+               SUM(CASE WHEN punchType = 'WORK_END' THEN 1 ELSE 0 END) AS workEnds,
+               SUM(CASE WHEN punchType = 'OT_START' THEN 1 ELSE 0 END) AS otStarts,
+               SUM(CASE WHEN punchType = 'OT_END' THEN 1 ELSE 0 END) AS otEnds,
+               COUNT(*) AS eventCount
+        FROM punch_event
+        WHERE workDate BETWEEN :start AND :end
+        GROUP BY workDate
+        """
+    )
+    fun observeDayPunchCounts(start: String, end: String): Flow<List<DayPunchCounts>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(event: PunchEventEntity): Long
@@ -64,6 +98,24 @@ interface WorkSessionDao {
 
     @Query("SELECT * FROM work_session WHERE workDate BETWEEN :start AND :end ORDER BY workDate, startTime")
     suspend fun getByRange(start: String, end: String): List<WorkSessionEntity>
+
+    /** 月历一次聚合：正常与加班互不重叠，避免每个格子单独查库 */
+    @Query(
+        """
+        SELECT workDate,
+               SUM(CASE WHEN sessionType = 'OVERTIME' THEN 0
+                        WHEN workMinutes > overtimeMinutes THEN workMinutes - overtimeMinutes
+                        ELSE 0 END) AS regularMinutes,
+               SUM(CASE WHEN sessionType = 'OVERTIME' THEN overtimeMinutes
+                        WHEN overtimeMinutes > workMinutes THEN workMinutes
+                        ELSE overtimeMinutes END) AS overtimeMinutes,
+               COUNT(*) AS sessionCount
+        FROM work_session
+        WHERE workDate BETWEEN :start AND :end
+        GROUP BY workDate
+        """
+    )
+    fun observeDayAggregates(start: String, end: String): Flow<List<DayAggregate>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(session: WorkSessionEntity): Long

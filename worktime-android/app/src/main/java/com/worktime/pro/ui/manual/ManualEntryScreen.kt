@@ -20,6 +20,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -45,8 +48,10 @@ import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.util.TimeFormatter
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneOffset
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +69,7 @@ fun ManualEntryScreen(
     var date by remember { mutableStateOf(LocalDate.now()) }
     var time by remember { mutableStateOf(LocalTime.of(9, 0)) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -90,7 +96,20 @@ fun ManualEntryScreen(
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("日期：${TimeFormatter.formatDate(date)} ${TimeFormatter.weekdayCN(date)}")
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "日期：${TimeFormatter.formatDate(date)} ${TimeFormatter.weekdayCN(date)}",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "修改",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
 
                 // 时间行：点击弹出滑动时间选择器，按用户设置的 12/24 制显示
                 Row(
@@ -153,5 +172,27 @@ fun ManualEntryScreen(
             },
             text = { TimePicker(state = pickerState) }
         )
+    }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        date = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()
+                    }
+                    showDatePicker = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("取消") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
     }
 }

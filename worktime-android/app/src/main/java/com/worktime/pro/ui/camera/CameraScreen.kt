@@ -21,13 +21,19 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -119,6 +125,8 @@ private fun CameraPreview(
     val previewView = remember { PreviewView(context) }
     val imageCapture = remember { ImageCapture.Builder().build() }
     val cameraExecutor: ExecutorService = remember { Executors.newSingleThreadExecutor() }
+    var camera by remember { mutableStateOf<androidx.camera.core.Camera?>(null) }
+    var torchOn by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -129,7 +137,7 @@ private fun CameraPreview(
             }
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                camera = cameraProvider.bindToLifecycle(
                     context as androidx.lifecycle.LifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     preview,
@@ -142,6 +150,8 @@ private fun CameraPreview(
 
         // 解绑并关闭执行器，防止内存泄漏
         onDispose {
+            camera = null
+            torchOn = false
             cameraExecutor.shutdown()
             ProcessCameraProvider.getInstance(context).get().unbindAll()
         }
@@ -157,10 +167,40 @@ private fun CameraPreview(
             Icon(Icons.Filled.Close, contentDescription = "关闭", tint = androidx.compose.ui.graphics.Color.White)
         }
 
+        if (camera?.cameraInfo?.hasFlashUnit() == true) {
+            IconButton(
+                onClick = {
+                    val next = !torchOn
+                    camera?.cameraControl?.enableTorch(next)
+                    torchOn = next
+                },
+                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+            ) {
+                Icon(
+                    if (torchOn) Icons.Filled.FlashOff else Icons.Filled.FlashOn,
+                    contentDescription = if (torchOn) "关闭手电筒" else "打开手电筒",
+                    tint = androidx.compose.ui.graphics.Color.White
+                )
+            }
+        }
+
         Text(
             "请将考勤机屏幕完整放入取景框",
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp),
             color = androidx.compose.ui.graphics.Color.White
+        )
+
+        // 取景框：引导用户把考勤机屏幕放入中央区域
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(0.86f)
+                .fillMaxHeight(0.52f)
+                .border(
+                    width = 1.dp,
+                    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.75f),
+                    shape = RoundedCornerShape(16.dp)
+                )
         )
 
         Column(

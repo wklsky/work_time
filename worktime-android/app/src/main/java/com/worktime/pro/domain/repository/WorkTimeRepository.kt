@@ -5,11 +5,15 @@
  */
 package com.worktime.pro.domain.repository
 
+import com.worktime.pro.data.db.DayAggregate
+import com.worktime.pro.data.db.DayPunchCounts
 import com.worktime.pro.data.db.PunchEventDao
 import com.worktime.pro.data.db.PunchEventEntity
 import com.worktime.pro.data.db.WorkRuleDao
 import com.worktime.pro.data.db.WorkSessionDao
 import com.worktime.pro.data.db.WorkSessionEntity
+import com.worktime.pro.data.db.toDayTotals
+import com.worktime.pro.domain.engine.PunchPairing
 import com.worktime.pro.domain.engine.WorkTimeCalculator
 import com.worktime.pro.domain.engine.WorkRuleConfig
 import com.worktime.pro.domain.model.Confidence
@@ -48,10 +52,11 @@ class WorkTimeRepository(
     fun observeDaySummary(date: String): Flow<DaySummary> =
         sessionDao.getByDate(date).map { sessions ->
             val events = punchDao.getByDateOnce(date)
+            val totals = sessions.toDayTotals()
             DaySummary(
                 date = date,
-                regularMinutes = sessions.filter { it.sessionType == "REGULAR" }.sumOf { it.workMinutes },
-                overtimeMinutes = sessions.sumOf { it.overtimeMinutes },
+                regularMinutes = totals.regularMinutes,
+                overtimeMinutes = totals.overtimeMinutes,
                 firstWorkStart = events.firstOrNull { it.punchType == PunchType.WORK_START.name }
                     ?.let { TimeFormatter.formatTime(fromMillis(it.punchTime).toLocalTime()) },
                 lastWorkEnd = events.lastOrNull { it.punchType == PunchType.WORK_END.name }
@@ -64,25 +69,61 @@ class WorkTimeRepository(
             )
         }
 
-    /** 新增打卡事件并立即重算当日工时段 */
+    /** 月历一次聚合查询，替代逐格 observeDaySummary */
+    fun observeDayAggregates(start: String, end: String): Flow<List<DayAggregate>> =
+        sessionDao.observeDayAggregates(start, end)
+
+    /** 月历缺卡判定所需的四类打卡计数 */
+    fun observeDayPunchCounts(start: String, end: String): Flow<List<DayPunchCounts>> =
+        punchDao.observeDayPunchCounts(start, end)
+
+    /**
+     * 新增或覆盖打卡并立即重算当日工时段。
+     * 业务规则：同一 (日期, 类型) 只保留一条，重复点击或重复识别都走覆盖，
+     * 避免出现两个上班、一个下班导致的重算错配。
+     */
     suspend fun addPunch(input: PunchInput): Long {
-        val now = System.currentTimeMillis()
-        val id = punchDao.insert(
-            PunchEventEntity(
-                workDate = input.workDate,
-                punchType = input.punchType.name,
-                punchTime = input.punchTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
-                source = input.source.name,
-                imagePath = input.imagePath,
-                ocrRawText = input.ocrRawText,
-                confidence = input.confidence?.name,
-                remark = input.remark,
-                createTime = now,
-                updateTime = now
-            )
-        )
+        val id = upsertEvent(input)
         recalculate(input.workDate)
         return id
+    }
+
+    /**
+     * 批量写入打卡并只重算一次：供习惯打卡一键应用整组时间使用。
+     * 业务说明：习惯包含多条固定时间，逐条 addPunch 会重复重算多次；这里先全部入库再统一重算。
+     */
+    suspend fun addPunches(inputs: List<PunchInput>) {
+        if (inputs.isEmpty()) return
+        inputs.forEach { upsertEvent(it) }
+        // 习惯固定在同一天，取首条日期重算即可
+        recalculate(inputs.first().workDate)
+    }
+
+    /** 按 (workDate, punchType) 覆盖写入；历史重复数据顺手清理 */
+    private suspend fun upsertEvent(input: PunchInput): Long {
+        val now = System.currentTimeMillis()
+        val existing = punchDao.getByDateAndType(input.workDate, input.punchType.name)
+        val keep = existing.firstOrNull()
+        val entity = PunchEventEntity(
+            id = keep?.id ?: 0,
+            workDate = input.workDate,
+            punchType = input.punchType.name,
+            punchTime = input.punchTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+            source = input.source.name,
+            imagePath = input.imagePath ?: keep?.imagePath,
+            ocrRawText = input.ocrRawText ?: keep?.ocrRawText,
+            confidence = input.confidence?.name ?: keep?.confidence,
+            remark = input.remark ?: keep?.remark,
+            createTime = keep?.createTime ?: now,
+            updateTime = now
+        )
+        return if (keep == null) {
+            punchDao.insert(entity)
+        } else {
+            existing.drop(1).forEach { punchDao.delete(it) }
+            punchDao.update(entity)
+            entity.id
+        }
     }
 
     suspend fun updatePunch(event: PunchEventEntity) {
@@ -102,6 +143,36 @@ class WorkTimeRepository(
     /** 查询区间内的打卡事件，供报表导出展示四类原始时间 */
     suspend fun getEventsInRange(start: String, end: String): List<PunchEventEntity> =
         punchDao.getByRange(start, end)
+
+    /** 全量工时段，供「我的」页累计统计 */
+    suspend fun getAllSessions(): List<WorkSessionEntity> = sessionDao.getAll()
+
+    /** 当前生效的默认工作规则 */
+    fun observeWorkRule(): Flow<com.worktime.pro.data.db.WorkRuleEntity?> = ruleDao.getDefault()
+
+    suspend fun getWorkRule(): com.worktime.pro.data.db.WorkRuleEntity? = ruleDao.getDefaultOnce()
+
+    /**
+     * 保存默认工作规则。
+     * 业务规则：修改规则默认不回溯历史记录，只有之后新写入或手动重算的日期才使用新规则。
+     */
+    suspend fun saveWorkRule(rule: com.worktime.pro.data.db.WorkRuleEntity) {
+        val existing = ruleDao.getDefaultOnce()
+        val now = System.currentTimeMillis()
+        val toSave = rule.copy(
+            id = existing?.id ?: 0,
+            isDefault = true,
+            updateTime = now
+        )
+        if (existing == null) ruleDao.insert(toSave) else ruleDao.update(toSave)
+    }
+
+    /** 按当前规则重算全部有打卡记录的日期，返回重算天数 */
+    suspend fun recalculateAll(): Int {
+        val dates = punchDao.getDatesInRange("0000-01-01", "9999-12-31")
+        dates.forEach { recalculate(it) }
+        return dates.size
+    }
 
     /**
      * 重算某日工时段：先清空旧结果，再按类型配对事件成段并计算。
@@ -125,10 +196,8 @@ class WorkTimeRepository(
 
         val now = System.currentTimeMillis()
 
-        // 正常工作段：按起始事件逐个配对最近的结束事件
-        for ((index, start) in starts.withIndex()) {
-            val end = ends.getOrNull(index) ?: continue
-            if (end.punchTime <= start.punchTime) continue
+        // 正常工作段：为每个开始事件匹配其后最近的未用结束事件
+        for ((start, end) in PunchPairing.pair(starts, ends) { it.punchTime }) {
             val result = calculator.calculate(fromMillis(start.punchTime), fromMillis(end.punchTime), rule)
             sessionDao.insert(
                 WorkSessionEntity(
@@ -150,9 +219,7 @@ class WorkTimeRepository(
         }
 
         // 独立加班段
-        for ((index, otStart) in otStarts.withIndex()) {
-            val otEnd = otEnds.getOrNull(index) ?: continue
-            if (otEnd.punchTime <= otStart.punchTime) continue
+        for ((otStart, otEnd) in PunchPairing.pair(otStarts, otEnds) { it.punchTime }) {
             val result = calculator.calculateOvertimeSegment(
                 fromMillis(otStart.punchTime), fromMillis(otEnd.punchTime), rule
             )
@@ -186,8 +253,16 @@ class WorkTimeRepository(
         restEnd = restEnd?.let { LocalTime.parse(it) },
         bufferMinutes = bufferMinutes,
         standardMinutes = run {
-            val derived = java.time.Duration.between(LocalTime.parse(startTime), LocalTime.parse(endTime)).toMinutes().toInt()
-            if (derived > 0) derived else Constants.STANDARD_MINUTES_FALLBACK
+            // 标准工时 = 在岗时长 - 午休，与 PRD「正常工作已扣除午休」的口径一致
+            val start = LocalTime.parse(startTime)
+            val end = LocalTime.parse(endTime)
+            val rest = if (restStart != null && restEnd != null) {
+                val rs = LocalTime.parse(restStart)
+                val re = LocalTime.parse(restEnd)
+                if (re.isAfter(rs)) java.time.Duration.between(rs, re).toMinutes().toInt() else 0
+            } else 0
+            val net = java.time.Duration.between(start, end).toMinutes().toInt() - rest
+            if (net > 0) net else Constants.STANDARD_MINUTES_FALLBACK
         },
         dayCutTime = LocalTime.parse(dayCutTime),
         workDays = workDays

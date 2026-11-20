@@ -8,6 +8,7 @@ package com.worktime.pro.ui.summary
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.worktime.pro.data.datastore.SettingsDataStore
+import com.worktime.pro.data.db.toDayTotals
 import com.worktime.pro.domain.calculator.SummaryCalculator
 import com.worktime.pro.domain.model.DailyMinutes
 import com.worktime.pro.domain.model.SummaryRange
@@ -26,7 +27,8 @@ data class SummaryUiState(
     val customEnd: LocalDate = LocalDate.now(),
     val result: SummaryResult? = null,
     val rangeTruncated: Boolean = false,
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val error: String? = null
 )
 
 class SummaryViewModel(
@@ -43,7 +45,18 @@ class SummaryViewModel(
     }
 
     fun setRange(range: SummaryRange) {
-        _state.value = _state.value.copy(range = range)
+        _state.value = _state.value.copy(range = range, error = null)
+        recompute()
+    }
+
+    /** 应用自定义区间：同时切到 CUSTOM 维度，避免选了日期却仍按旧维度统计 */
+    fun applyCustomRange(start: LocalDate, end: LocalDate) {
+        _state.value = _state.value.copy(
+            range = SummaryRange.CUSTOM,
+            customStart = start,
+            customEnd = end,
+            error = null
+        )
         recompute()
     }
 
@@ -62,8 +75,7 @@ class SummaryViewModel(
     }
 
     fun setCustomRange(start: LocalDate, end: LocalDate) {
-        _state.value = _state.value.copy(customStart = start, customEnd = end)
-        recompute()
+        applyCustomRange(start, end)
     }
 
     /** 加载区间工时段并聚合为汇总结果 */
@@ -76,26 +88,29 @@ class SummaryViewModel(
                     current.range, current.anchor, current.customStart, current.customEnd
                 )
                 val sessions = repository.getSessionsInRange(resolved.start.toString(), resolved.end.toString())
-                // 按工时段类型累加：REGULAR 段计工作分钟，全部段的加班分钟汇总
+                // 按日拆解为互不重叠的正常/加班工时，避免加班重复计数
                 val dailyMap = sessions.groupBy { it.workDate }.map { (date, list) ->
+                    val totals = list.toDayTotals()
                     DailyMinutes(
                         date = date,
-                        workMinutes = list.filter { it.sessionType == "REGULAR" }.sumOf { it.workMinutes },
-                        overtimeMinutes = list.sumOf { it.overtimeMinutes }
+                        workMinutes = totals.regularMinutes,
+                        overtimeMinutes = totals.overtimeMinutes
                     )
                 }
                 val result = calculator.summarize(dailyMap, resolved.start, resolved.end, current.range)
                 _state.value = _state.value.copy(
                     result = result,
                     rangeTruncated = resolved.truncated,
-                    isLoading = false
+                    isLoading = false,
+                    error = null
                 )
             } catch (e: Exception) {
-                // 汇总失败不能让页面停留在 loading 态，需明确暴露错误
+                // 汇总失败不能让页面停留在 loading 态，错误态与“区间截断”分开表达
                 _state.value = _state.value.copy(
                     result = null,
                     isLoading = false,
-                    rangeTruncated = true
+                    rangeTruncated = false,
+                    error = "统计失败：${e.message ?: "未知错误"}"
                 )
             }
         }

@@ -7,7 +7,12 @@ package com.worktime.pro
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -43,8 +48,10 @@ import com.worktime.pro.ui.detail.DayDetailScreen
 import com.worktime.pro.ui.home.HomeScreen
 import com.worktime.pro.ui.manual.ManualEntryScreen
 import com.worktime.pro.ui.mine.MineScreen
+import com.worktime.pro.ui.rules.WorkRulesScreen
 import com.worktime.pro.ui.settings.SettingsScreen
 import com.worktime.pro.ui.summary.SummaryScreen
+import com.worktime.pro.ui.theme.CustomThemeScreen
 import com.worktime.pro.ui.theme.WorkTimeTheme
 import com.worktime.pro.ui.today.TodayScreen
 
@@ -60,6 +67,7 @@ private val TAB_ROUTES = TAB_ITEMS.map { it.route }.toSet()
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val app = application as WorkTimeApplication
         val factory = ViewModelFactory(app.repository, app.settings, app.backupManager)
 
@@ -68,7 +76,13 @@ class MainActivity : ComponentActivity() {
             val settings by app.settings.settings.collectAsState(
                 initial = com.worktime.pro.data.datastore.AppSettings()
             )
-            WorkTimeTheme(themeMode = settings.themeMode) {
+            WorkTimeTheme(
+                themeMode = settings.themeMode,
+                customThemeEnabled = settings.customThemeEnabled,
+                customLight = settings.customLightColors,
+                customDark = settings.customDarkColors,
+                fontScale = settings.fontScale
+            ) {
                 CompositionLocalProvider(
                     LocalRepository provides app.repository,
                     LocalSettings provides app.settings
@@ -124,13 +138,29 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AppNavHost(navController: NavHostController, factory: ViewModelFactory) {
-    NavHost(navController = navController, startDestination = "home") {
+    // 保存后回到进入拍照/手动录入前的主 Tab，避免从今日页跳回首页
+    val popToOriginTab: () -> Unit = {
+        if (!navController.popBackStack("today", inclusive = false)) {
+            navController.popBackStack("home", inclusive = false)
+        }
+    }
+    NavHost(
+        navController = navController,
+        startDestination = "home",
+        enterTransition = {
+            fadeIn(tween(200)) + slideInHorizontally(tween(220)) { it / 10 }
+        },
+        exitTransition = { fadeOut(tween(140)) },
+        popEnterTransition = { fadeIn(tween(200)) },
+        popExitTransition = { fadeOut(tween(140)) }
+    ) {
         composable("home") {
             HomeScreen(
                 factory = factory,
                 onOpenDay = { date -> navController.navigate("day/$date") },
                 onOpenCamera = { navController.navigate("camera") },
-                onOpenManual = { navController.navigate("manual") }
+                onOpenManual = { navController.navigate("manual") },
+                onOpenHabits = { navController.navigate("habits") }
             )
         }
         composable("today") {
@@ -143,9 +173,29 @@ private fun AppNavHost(navController: NavHostController, factory: ViewModelFacto
         }
         composable("mine") {
             MineScreen(
+                factory = factory,
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenSummary = { navController.navigate("summary") },
-                onOpenManual = { navController.navigate("manual") }
+                onOpenManual = { navController.navigate("manual") },
+                onOpenHabits = { navController.navigate("habits") }
+            )
+        }
+        composable("habits") {
+            com.worktime.pro.ui.habit.HabitScreen(
+                factory = factory,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("rules") {
+            WorkRulesScreen(
+                factory = factory,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("custom-theme") {
+            CustomThemeScreen(
+                factory = factory,
+                onBack = { navController.popBackStack() }
             )
         }
         composable("camera") {
@@ -160,7 +210,7 @@ private fun AppNavHost(navController: NavHostController, factory: ViewModelFacto
         composable("confirm") {
             ConfirmScreen(
                 factory = factory,
-                onSaved = { navController.popBackStack("home", inclusive = false) },
+                onSaved = popToOriginTab,
                 onRetake = { navController.popBackStack() }
             )
         }
@@ -169,21 +219,23 @@ private fun AppNavHost(navController: NavHostController, factory: ViewModelFacto
             DayDetailScreen(
                 dateKey = date,
                 factory = factory,
-                onBack = { navController.popBackStack() },
-                onViewEvidence = { /* 凭证查看由系统图片查看器处理，见设置页导出 */ }
+                onBack = { navController.popBackStack() }
             )
         }
         composable("manual") {
             ManualEntryScreen(
                 factory = factory,
-                onSaved = { navController.popBackStack("home", inclusive = false) },
+                onSaved = popToOriginTab,
                 onBack = { navController.popBackStack() }
             )
         }
         composable("settings") {
             SettingsScreen(
                 factory = factory,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenHabits = { navController.navigate("habits") },
+                onOpenRules = { navController.navigate("rules") },
+                onOpenCustomTheme = { navController.navigate("custom-theme") }
             )
         }
         composable("summary") {

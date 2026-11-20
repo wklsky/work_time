@@ -1,7 +1,7 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/main/java/com/worktime/pro/ui/camera/CameraViewModel.kt
- * @Description: 拍照识别状态管理，协调 ML Kit 识别、字段抽取与候选结果确认入库
+ * @Description: 拍照识别状态管理，协调 ML Kit 识别、字段抽取、凭证保存与相册发布
  */
 package com.worktime.pro.ui.camera
 
@@ -13,12 +13,13 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.worktime.pro.data.datastore.SettingsDataStore
-import com.worktime.pro.domain.model.Confidence
+import com.worktime.pro.domain.evidence.EvidenceStore
+import com.worktime.pro.domain.evidence.GalleryPublisher
+import com.worktime.pro.domain.model.PunchSource
 import com.worktime.pro.domain.ocr.OcrCandidate
 import com.worktime.pro.domain.ocr.OcrFieldExtractor
 import com.worktime.pro.domain.repository.PunchInput
 import com.worktime.pro.domain.repository.WorkTimeRepository
-import com.worktime.pro.util.Constants
 import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,10 +29,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 data class ConfirmState(
     val candidates: List<OcrCandidate> = emptyList(),
@@ -74,12 +75,15 @@ class CameraViewModel(
                 } else {
                     com.worktime.pro.domain.ocr.StatusMapping.deserialize(mappingRaw)
                 }
+                val scaled = withContext(Dispatchers.Default) { downscale(bitmap) }
                 val candidates = withContext(Dispatchers.Default) {
-                    val image = InputImage.fromBitmap(bitmap, 0)
+                    val image = InputImage.fromBitmap(scaled, 0)
                     val visionText = recognizer.process(image).await()
                     extractor.extract(visionText, statusMapping = mapping)
                 }
-                val path = saveImage(bitmap, context)
+                val path = withContext(Dispatchers.IO) {
+                    EvidenceStore.save(context, scaled, EVIDENCE_QUALITY)
+                }
                 _confirmState.value = _confirmState.value.copy(
                     candidates = candidates,
                     imagePath = path,
@@ -99,43 +103,73 @@ class CameraViewModel(
         _confirmState.value = _confirmState.value.copy(error = null)
     }
 
-    /** 用户确认后，将候选写入打卡事件并触发重算 */
-    fun confirmCandidates(candidates: List<OcrCandidate>, date: LocalDate, onDone: () -> Unit) {
+    /**
+     * 用户确认后批量写入打卡，并只重算涉及日期一次。
+     * 相册发布失败不影响入库；相册开关关闭时跳过。
+     */
+    fun confirmCandidates(
+        candidates: List<OcrCandidate>,
+        date: LocalDate,
+        context: Context,
+        onDone: () -> Unit
+    ) {
         viewModelScope.launch {
             val state = _confirmState.value
-            for (candidate in candidates) {
-                val time = candidate.time ?: continue
+            val inputs = candidates.mapNotNull { candidate ->
+                val time = candidate.time ?: return@mapNotNull null
+                val type = candidate.type ?: return@mapNotNull null
                 // 优先用屏幕识别出的日期（MM-DD 补全年份），确认页修改后的日期作为回退
                 val effectiveDate = candidate.date ?: date
-                val workDate = TimeFormatter.formatDateKey(effectiveDate)
-                repository.addPunch(
-                    PunchInput(
-                        workDate = workDate,
-                        punchType = candidate.type ?: continue,
-                        punchTime = LocalDateTime.of(effectiveDate, time),
-                        source = com.worktime.pro.domain.model.PunchSource.OCR,
-                        imagePath = state.imagePath,
-                        ocrRawText = candidate.rawText,
-                        confidence = candidate.confidence
-                    )
+                PunchInput(
+                    workDate = TimeFormatter.formatDateKey(effectiveDate),
+                    punchType = type,
+                    punchTime = LocalDateTime.of(effectiveDate, time),
+                    source = PunchSource.OCR,
+                    imagePath = state.imagePath,
+                    ocrRawText = candidate.rawText,
+                    confidence = candidate.confidence
                 )
             }
+            inputs.groupBy { it.workDate }.values.forEach { repository.addPunches(it) }
+
+            // 确认保存后才写相册，避免用户重拍时产生垃圾照片
+            val galleryEnabled = runCatching {
+                settings.settings.first().gallerySaveEnabled
+            }.getOrDefault(false)
+            if (galleryEnabled) {
+                EvidenceStore.resolve(context, state.imagePath)?.let { file ->
+                    val displayName = "工时助手_${date.format(NAME_DATE)}_${System.currentTimeMillis()}.jpg"
+                    runCatching { GalleryPublisher.publish(context, file, displayName) }
+                }
+            }
+
+            pendingBitmap = null
             _confirmState.value = ConfirmState()
             onDone()
         }
     }
 
-    /** 保存凭证图到私有目录，压缩以控制存储占用 */
-    private fun saveImage(bitmap: Bitmap, context: Context): String {
-        val dir = File(context.filesDir, Constants.EVIDENCE_DIR).apply { mkdirs() }
-        val file = File(dir, "evidence_${System.currentTimeMillis()}.jpg")
-        file.outputStream().use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, EVIDENCE_QUALITY, out)
-        }
-        return file.absolutePath
+    /** 长边压缩到 1600px，降低 ML Kit 内存与耗时，同时控制凭证体积 */
+    private fun downscale(source: Bitmap, maxSide: Int = 1600): Bitmap {
+        val longest = maxOf(source.width, source.height)
+        if (longest <= maxSide) return source
+        val ratio = maxSide.toFloat() / longest
+        return Bitmap.createScaledBitmap(
+            source,
+            (source.width * ratio).toInt().coerceAtLeast(1),
+            (source.height * ratio).toInt().coerceAtLeast(1),
+            true
+        )
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        recognizer.close()
+        pendingBitmap = null
     }
 
     companion object {
         private const val EVIDENCE_QUALITY = 70
+        private val NAME_DATE = DateTimeFormatter.ofPattern("yyyyMMdd", Locale.US)
     }
 }
