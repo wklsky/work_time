@@ -8,12 +8,15 @@ package com.worktime.pro
 import android.app.Application
 import com.worktime.pro.data.datastore.SettingsDataStore
 import com.worktime.pro.data.db.WorkTimeDatabase
+import com.worktime.pro.domain.backup.BackupManager
 import com.worktime.pro.domain.repository.WorkTimeRepository
 
 class WorkTimeApplication : Application() {
     lateinit var repository: WorkTimeRepository
         private set
     lateinit var settings: SettingsDataStore
+        private set
+    lateinit var backupManager: BackupManager
         private set
 
     override fun onCreate() {
@@ -25,5 +28,11 @@ class WorkTimeApplication : Application() {
             ruleDao = database.workRuleDao()
         )
         settings = SettingsDataStore(this)
+        backupManager = BackupManager(
+            context = this,
+            punchDao = database.punchEventDao(),
+            sessionDao = database.workSessionDao(),
+            ruleDao = database.workRuleDao()
+        )
     }
 }

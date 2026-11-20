@@ -46,6 +46,12 @@ interface PunchEventDao {
 
     @Query("SELECT * FROM punch_event")
     suspend fun getAll(): List<PunchEventEntity>
+
+    @Query("DELETE FROM punch_event")
+    suspend fun deleteAll()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(events: List<PunchEventEntity>)
 }
 
 @Dao
@@ -67,6 +73,12 @@ interface WorkSessionDao {
 
     @Query("SELECT * FROM work_session")
     suspend fun getAll(): List<WorkSessionEntity>
+
+    @Query("DELETE FROM work_session")
+    suspend fun deleteAll()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(sessions: List<WorkSessionEntity>)
 }
 
 @Dao
@@ -85,4 +97,10 @@ interface WorkRuleDao {
 
     @Query("SELECT * FROM work_rule")
     suspend fun getAll(): List<WorkRuleEntity>
+
+    @Query("DELETE FROM work_rule")
+    suspend fun deleteAll()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(rules: List<WorkRuleEntity>)
 }

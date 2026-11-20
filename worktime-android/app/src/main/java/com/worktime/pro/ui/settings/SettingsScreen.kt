@@ -1,10 +1,14 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/main/java/com/worktime/pro/ui/settings/SettingsScreen.kt
- * @Description: 设置界面，核心为日历下方显示内容（全局统一切换），以及加班色阶、OCR 自动填充
+ * @Description: 设置界面，含全局日历显示切换、打卡设置与本地数据备份恢复
  */
 package com.worktime.pro.ui.settings
 
+import android.content.Intent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
@@ -22,16 +28,25 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
 import com.worktime.pro.ui.ViewModelFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(
@@ -39,13 +54,29 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     val viewModel: SettingsViewModel = viewModel(factory = factory)
-    val settings by viewModel.settingsFlow.collectAsState(
-        initial = com.worktime.pro.data.datastore.AppSettings()
-    )
+    val backupViewModel: BackupViewModel = viewModel(factory = factory)
+    val settings by viewModel.settingsFlow.collectAsState(initial = AppSettings())
+    val backupMessage by backupViewModel.message.collectAsState()
+    val context = LocalContext.current
     val currentMode = CalendarDisplayMode.entries.firstOrNull { it.value == settings.calendarDisplayMode }
         ?: CalendarDisplayMode.WORK_TIME
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    // 导入文件选择器：用户选择备份 JSON 后交给 BackupViewModel 恢复
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri -> if (uri != null) backupViewModel.restore(context, uri) }
+
+    // 恢复完成后，导入操作涉及数据覆盖，此处以 Toast 明确提示结果
+    LaunchedEffect(backupMessage) {
+        backupMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            backupViewModel.clearMessage()
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -59,7 +90,6 @@ fun SettingsScreen(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("显示设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
-                // 日历下方显示内容：用户决策——全局统一，设置中切换
                 Text("日历每日下方显示", style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -98,6 +128,49 @@ fun SettingsScreen(
                     description = "开启后识别结果自动填入确认页，仍需人工确认才入库",
                     checked = settings.ocrAutoFill,
                     onCheckedChange = viewModel::setOcrAutoFill
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("数据管理", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "单机版数据仅存于本机，建议定期导出备份。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val result = backupViewModel.export()
+                            withContext(Dispatchers.Main) {
+                                result.onSuccess { file ->
+                                    val uri = FileProvider.getUriForFile(
+                                        context, "${context.packageName}.fileprovider", file
+                                    )
+                                    val intent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/json"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(intent, "分享备份"))
+                                }
+                            }
+                        }
+                    }) { Text("导出备份") }
+
+                    TextButton(onClick = { importLauncher.launch("application/json") }) {
+                        Text("导入恢复")
+                    }
+                }
+                // 业务要求：导入会覆盖当前全部数据，必须在入口明确告知用户
+                Text(
+                    "注意：导入恢复将覆盖当前全部数据，操作不可撤销。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
                 )
             }
         }
