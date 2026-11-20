@@ -130,27 +130,95 @@ data class PalettePreset(
 )
 
 object CustomPalettePresets {
+    /**
+     * 常用预设，按色相环从蓝到中性色排列，便于横向扫视。
+     * 每套同时提供浅色与深色；新增的六套按浅色次要文字/背景 ≥ 4.5:1 校验过，
+     * 深色模式则统一提亮品牌色与工时/加班色，保证暗底可读。
+     */
     val ALL = listOf(
         PalettePreset("工时台账", CustomPalette.defaultLight(), CustomPalette.defaultDark()),
         PalettePreset(
-            name = "墨绿",
+            name = "午夜蓝",
             light = CustomPalette(
-                primary = Color(0xFF1F3D2B),
-                work = Color(0xFF3D7A57),
-                overtime = Color(0xFFC97B3C),
-                background = Color(0xFFF3F6F2),
+                primary = Color(0xFF132A4A),
+                work = Color(0xFF2F5F96),
+                overtime = Color(0xFFE07A3F),
+                background = Color(0xFFF2F5FA),
                 surface = Color(0xFFFFFFFF),
-                textPrimary = Color(0xFF1F2A22),
-                textSecondary = Color(0xFF7C8B80)
+                textPrimary = Color(0xFF122033),
+                textSecondary = Color(0xFF7A8CA3)
             ),
             dark = CustomPalette(
-                primary = Color(0xFF8FC9A6),
-                work = Color(0xFF6FBF94),
-                overtime = Color(0xFFE0A36A),
-                background = Color(0xFF0E1712),
-                surface = Color(0xFF16231A),
-                textPrimary = Color(0xFFE6F0E8),
-                textSecondary = Color(0xFF9CB2A2)
+                primary = Color(0xFF9CC0F0),
+                work = Color(0xFF79A9E0),
+                overtime = Color(0xFFE08A5A),
+                background = Color(0xFF0A1220),
+                surface = Color(0xFF121C2E),
+                textPrimary = Color(0xFFE4ECF7),
+                textSecondary = Color(0xFF9AAABF)
+            )
+        ),
+        PalettePreset(
+            name = "靛青",
+            light = CustomPalette(
+                primary = Color(0xFF2E2A5E),
+                work = Color(0xFF5B57A6),
+                overtime = Color(0xFFB55027),
+                background = Color(0xFFF5F3FA),
+                surface = Color(0xFFFFFFFF),
+                textPrimary = Color(0xFF211E33),
+                textSecondary = Color(0xFF6E6A85)
+            ),
+            dark = CustomPalette(
+                primary = Color(0xFFBCB4F0),
+                work = Color(0xFFA6A0E0),
+                overtime = Color(0xFFE8A06E),
+                background = Color(0xFF100F18),
+                surface = Color(0xFF191725),
+                textPrimary = Color(0xFFE9E6F5),
+                textSecondary = Color(0xFFA8A2BE)
+            )
+        ),
+        PalettePreset(
+            name = "绛紫",
+            light = CustomPalette(
+                primary = Color(0xFF4A2640),
+                work = Color(0xFF7A3F66),
+                overtime = Color(0xFFB04D30),
+                background = Color(0xFFF7F2F6),
+                surface = Color(0xFFFFFFFF),
+                textPrimary = Color(0xFF2B1A27),
+                textSecondary = Color(0xFF7A6574)
+            ),
+            dark = CustomPalette(
+                primary = Color(0xFFD9AECE),
+                work = Color(0xFFC08AAE),
+                overtime = Color(0xFFE89E86),
+                background = Color(0xFF160F15),
+                surface = Color(0xFF221721),
+                textPrimary = Color(0xFFF3E6F0),
+                textSecondary = Color(0xFFB9A3B0)
+            )
+        ),
+        PalettePreset(
+            name = "玫瑰",
+            light = CustomPalette(
+                primary = Color(0xFF6B2F3A),
+                work = Color(0xFFA34F63),
+                overtime = Color(0xFFA84E22),
+                background = Color(0xFFFBF4F3),
+                surface = Color(0xFFFFFFFF),
+                textPrimary = Color(0xFF341E21),
+                textSecondary = Color(0xFF856A6B)
+            ),
+            dark = CustomPalette(
+                primary = Color(0xFFE6A9B4),
+                work = Color(0xFFD98A9B),
+                overtime = Color(0xFFE79C7E),
+                background = Color(0xFF170F11),
+                surface = Color(0xFF231619),
+                textPrimary = Color(0xFFF7E9EB),
+                textSecondary = Color(0xFFC2A3A8)
             )
         ),
         PalettePreset(
@@ -175,24 +243,87 @@ object CustomPalettePresets {
             )
         ),
         PalettePreset(
-            name = "午夜蓝",
+            name = "琥珀",
             light = CustomPalette(
-                primary = Color(0xFF132A4A),
-                work = Color(0xFF2F5F96),
-                overtime = Color(0xFFE07A3F),
-                background = Color(0xFFF2F5FA),
+                primary = Color(0xFF4A3512),
+                work = Color(0xFF2E6B5B),
+                overtime = Color(0xFF9A6212),
+                background = Color(0xFFFAF6EC),
                 surface = Color(0xFFFFFFFF),
-                textPrimary = Color(0xFF122033),
-                textSecondary = Color(0xFF7A8CA3)
+                textPrimary = Color(0xFF2E2415),
+                textSecondary = Color(0xFF786A50)
             ),
             dark = CustomPalette(
-                primary = Color(0xFF9CC0F0),
-                work = Color(0xFF79A9E0),
-                overtime = Color(0xFFE08A5A),
-                background = Color(0xFF0A1220),
-                surface = Color(0xFF121C2E),
-                textPrimary = Color(0xFFE4ECF7),
-                textSecondary = Color(0xFF9AAABF)
+                primary = Color(0xFFE8C77E),
+                work = Color(0xFF9CCB9A),
+                overtime = Color(0xFFE0A64C),
+                background = Color(0xFF161208),
+                surface = Color(0xFF221C10),
+                textPrimary = Color(0xFFF5EEDC),
+                textSecondary = Color(0xFFC0B08F)
+            )
+        ),
+        PalettePreset(
+            name = "青瓷",
+            light = CustomPalette(
+                primary = Color(0xFF1F4A44),
+                work = Color(0xFF2E7A6B),
+                overtime = Color(0xFFA9572E),
+                background = Color(0xFFF1F6F3),
+                surface = Color(0xFFFFFFFF),
+                textPrimary = Color(0xFF1A2A26),
+                textSecondary = Color(0xFF5F726A)
+            ),
+            dark = CustomPalette(
+                primary = Color(0xFF9CCFC2),
+                work = Color(0xFF7CC3AE),
+                overtime = Color(0xFFE0A276),
+                background = Color(0xFF0D1614),
+                surface = Color(0xFF152320),
+                textPrimary = Color(0xFFE4EFEA),
+                textSecondary = Color(0xFF9DB3AB)
+            )
+        ),
+        PalettePreset(
+            name = "墨绿",
+            light = CustomPalette(
+                primary = Color(0xFF1F3D2B),
+                work = Color(0xFF3D7A57),
+                overtime = Color(0xFFC97B3C),
+                background = Color(0xFFF3F6F2),
+                surface = Color(0xFFFFFFFF),
+                textPrimary = Color(0xFF1F2A22),
+                textSecondary = Color(0xFF7C8B80)
+            ),
+            dark = CustomPalette(
+                primary = Color(0xFF8FC9A6),
+                work = Color(0xFF6FBF94),
+                overtime = Color(0xFFE0A36A),
+                background = Color(0xFF0E1712),
+                surface = Color(0xFF16231A),
+                textPrimary = Color(0xFFE6F0E8),
+                textSecondary = Color(0xFF9CB2A2)
+            )
+        ),
+        PalettePreset(
+            name = "石墨",
+            light = CustomPalette(
+                primary = Color(0xFF343A40),
+                work = Color(0xFF4F6D8A),
+                overtime = Color(0xFFB4532F),
+                background = Color(0xFFF4F5F6),
+                surface = Color(0xFFFFFFFF),
+                textPrimary = Color(0xFF24272B),
+                textSecondary = Color(0xFF676D75)
+            ),
+            dark = CustomPalette(
+                primary = Color(0xFFC9CED6),
+                work = Color(0xFF8FB0CE),
+                overtime = Color(0xFFE39A6E),
+                background = Color(0xFF121417),
+                surface = Color(0xFF1B2025),
+                textPrimary = Color(0xFFE7EAEE),
+                textSecondary = Color(0xFFA4ABB4)
             )
         )
     )

@@ -7,6 +7,7 @@ package com.worktime.pro.ui.summary
 
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,28 +17,34 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDateRangePickerState
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -50,8 +57,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.domain.export.ExportFormat
@@ -67,6 +78,7 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,7 +92,17 @@ fun SummaryScreen(
     val repository = LocalRepository.current
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
-    var showRangePicker by remember { mutableStateOf(false) }
+    var showRangeSheet by remember { mutableStateOf(false) }
+    // 弹层内先编辑本地副本，点「应用区间」才写入仓储，取消不污染当前统计
+    var rangeStart by remember { mutableStateOf(state.customStart) }
+    var rangeEnd by remember { mutableStateOf(state.customEnd) }
+    var editingRangeField by remember { mutableStateOf<RangeField?>(null) }
+
+    val openCustomRange: () -> Unit = {
+        rangeStart = state.customStart
+        rangeEnd = state.customEnd
+        showRangeSheet = true
+    }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -95,31 +117,45 @@ fun SummaryScreen(
             SummaryRange.entries.forEach { range ->
                 FilterChip(
                     selected = state.range == range,
-                    onClick = { viewModel.setRange(range) },
+                    onClick = {
+                        // 自定义维度没有固定锚点，点它就打开区间编辑，而不是切一个空区间
+                        if (range == SummaryRange.CUSTOM) {
+                            openCustomRange()
+                        } else {
+                            viewModel.setRange(range)
+                        }
+                    },
                     label = { Text(range.label) }
                 )
             }
         }
 
-        // 区间翻页
+        // 区间翻页：自定义区间没有前后锚点，改为就地显示区间与「修改」入口
+        val isCustomRange = state.range == SummaryRange.CUSTOM
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { viewModel.shiftAnchor(-1) }) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一区间")
+            if (!isCustomRange) {
+                IconButton(onClick = { viewModel.shiftAnchor(-1) }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一区间")
+                }
             }
             val label = state.result?.let { "${it.startDate} ~ ${it.endDate}" } ?: "加载中"
-            Text(label, modifier = Modifier.padding(horizontal = 12.dp))
-            IconButton(onClick = { viewModel.shiftAnchor(1) }) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一区间")
+            Text(
+                label,
+                modifier = Modifier.padding(horizontal = 12.dp),
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            if (isCustomRange) {
+                TextButton(onClick = openCustomRange) { Text("修改") }
+            } else {
+                IconButton(onClick = { viewModel.shiftAnchor(1) }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一区间")
+                }
             }
-        }
-
-        // 自定义区间入口：不分维度，选中后自动切到 CUSTOM
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { showRangePicker = true }) { Text("选择自定义区间") }
         }
 
         if (state.rangeTruncated) {
@@ -225,35 +261,223 @@ fun SummaryScreen(
         }
     }
 
-    if (showRangePicker) {
-        val pickerState = rememberDateRangePickerState(
-            initialSelectedStartDateMillis = state.customStart
-                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
-            initialSelectedEndDateMillis = state.customEnd
-                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    if (showRangeSheet) {
+        CustomRangeSheet(
+            start = rangeStart,
+            end = rangeEnd,
+            onPickStart = { editingRangeField = RangeField.START },
+            onPickEnd = { editingRangeField = RangeField.END },
+            onPreset = { presetStart, presetEnd ->
+                rangeStart = presetStart
+                rangeEnd = presetEnd
+            },
+            onApply = {
+                viewModel.applyCustomRange(rangeStart, rangeEnd)
+                showRangeSheet = false
+            },
+            onDismiss = { showRangeSheet = false }
+        )
+    }
+
+    editingRangeField?.let { field ->
+        val initialDate = if (field == RangeField.START) rangeStart else rangeEnd
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis =
+                initialDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
         )
         DatePickerDialog(
-            onDismissRequest = { showRangePicker = false },
+            onDismissRequest = { editingRangeField = null },
             confirmButton = {
                 TextButton(onClick = {
-                    val start = pickerState.selectedStartDateMillis?.let(::millisToDate)
-                    val end = pickerState.selectedEndDateMillis?.let(::millisToDate)
-                    if (start != null && end != null) {
-                        viewModel.applyCustomRange(start, end)
-                        showRangePicker = false
+                    pickerState.selectedDateMillis?.let { millis ->
+                        val picked = millisToDate(millis)
+                        // 起止互锁：选了更晚的开始日就同步结束日，反之亦然，避免出现倒置区间
+                        if (field == RangeField.START) {
+                            rangeStart = picked
+                            if (rangeEnd < picked) rangeEnd = picked
+                        } else {
+                            rangeEnd = picked
+                            if (rangeStart > picked) rangeStart = picked
+                        }
                     }
+                    editingRangeField = null
                 }) { Text("确定") }
             },
             dismissButton = {
-                TextButton(onClick = { showRangePicker = false }) { Text("取消") }
+                TextButton(onClick = { editingRangeField = null }) { Text("取消") }
             }
         ) {
-            DateRangePicker(
-                state = pickerState,
-                modifier = Modifier.height(480.dp),
-                showModeToggle = false
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+private enum class RangeField { START, END }
+
+/**
+ * 自定义统计区间弹层：两个大号日期读数 + 常用区间快捷键，
+ * 与「校时」弹层同一套底部纸面与眉标语言，避免不同功能长得像两个 App。
+ */
+@Composable
+private fun CustomRangeSheet(
+    start: LocalDate,
+    end: LocalDate,
+    onPickStart: () -> Unit,
+    onPickEnd: () -> Unit,
+    onPreset: (LocalDate, LocalDate) -> Unit,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val today = remember { LocalDate.now() }
+    val days = ChronoUnit.DAYS.between(start, end).toInt() + 1
+    val maxDays = com.worktime.pro.util.Constants.MAX_CUSTOM_RANGE_DAYS
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 18.dp, bottom = 20.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "自定义区间",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = muted,
+                                letterSpacing = 3.sp
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                "统计区间",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "关闭",
+                                tint = muted
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    DateFieldRow("开始日期", start, onPickStart)
+                    DateFieldRow("结束日期", end, onPickEnd)
+
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        if (days > maxDays) {
+                            "共 $days 天，超出 $maxDays 天上限，应用后将自动截断"
+                        } else {
+                            "共 $days 天"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (days > maxDays) {
+                            MaterialTheme.colorScheme.tertiary
+                        } else {
+                            muted
+                        }
+                    )
+
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PresetChip("近 7 天") { onPreset(today.minusDays(6), today) }
+                        PresetChip("近 30 天") { onPreset(today.minusDays(29), today) }
+                        PresetChip("本月") { onPreset(today.withDayOfMonth(1), today) }
+                    }
+
+                    Spacer(Modifier.height(18.dp))
+                    Button(
+                        onClick = onApply,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text(
+                            "应用区间",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DateFieldRow(
+    label: String,
+    date: LocalDate,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 1.5.sp
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                TimeFormatter.formatDate(date),
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold
             )
         }
+        Text(
+            "修改",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@Composable
+private fun PresetChip(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 

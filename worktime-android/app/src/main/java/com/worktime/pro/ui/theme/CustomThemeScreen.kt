@@ -17,13 +17,13 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -223,17 +223,38 @@ fun CustomThemeScreen(
                             onClick = { viewModel.applyPreset(preset) },
                             label = { Text(preset.name) },
                             leadingIcon = {
-                                Box(
+                                // 三色条依次是品牌色/工时/加班，并跟随浅色/深色编辑切换
+                                val swatch = if (state.editDark) preset.dark else preset.light
+                                val swatchShape = RoundedCornerShape(4.dp)
+                                Row(
                                     modifier = Modifier
                                         .size(14.dp)
-                                        .clip(CircleShape)
-                                        .background(preset.light.primary)
+                                        .clip(swatchShape)
                                         .border(
                                             1.dp,
                                             MaterialTheme.colorScheme.outlineVariant,
-                                            CircleShape
+                                            swatchShape
                                         )
-                                )
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .background(swatch.primary)
+                                    )
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .background(swatch.work)
+                                    )
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .background(swatch.overtime)
+                                    )
+                                }
                             }
                         )
                     }

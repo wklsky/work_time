@@ -25,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -35,9 +34,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -57,6 +54,7 @@ import com.worktime.pro.data.datastore.PunchHabit
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
+import com.worktime.pro.ui.components.TimePickerDialog
 import com.worktime.pro.util.TimeFormatter
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -237,6 +235,7 @@ private fun HabitEditor(
                             modifier = Modifier.clickable { pickingType = type },
                             color = if (enabled[type] == true) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -266,24 +265,16 @@ private fun HabitEditor(
 
     if (pickingType != null) {
         val type = pickingType!!
-        val current = times[type] ?: LocalTime.of(9, 0)
-        val pickerState = rememberTimePickerState(
-            initialHour = current.hour,
-            initialMinute = current.minute,
-            is24Hour = use24Hour
-        )
-        AlertDialog(
-            onDismissRequest = { pickingType = null },
-            confirmButton = {
-                TextButton(onClick = {
-                    val hour = pickerState.hour
-                    val minute = pickerState.minute
-                    if (hour in 0..23 && minute in 0..59) times[type] = LocalTime.of(hour, minute)
-                    pickingType = null
-                }) { Text("确定") }
-            },
-            dismissButton = { TextButton(onClick = { pickingType = null }) { Text("取消") } },
-            text = { TimePicker(state = pickerState) }
+        TimePickerDialog(
+            title = "打卡时刻",
+            subtitle = "${type.label} · 保存后可在今日页一键写入",
+            initialTime = times[type] ?: LocalTime.of(9, 0),
+            use24Hour = use24Hour,
+            onDismiss = { pickingType = null },
+            onConfirm = { picked ->
+                times[type] = picked
+                pickingType = null
+            }
         )
     }
 }

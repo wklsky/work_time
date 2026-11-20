@@ -42,8 +42,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -71,6 +69,7 @@ import com.worktime.pro.domain.model.PunchSource
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
+import com.worktime.pro.ui.components.TimePickerDialog
 import com.worktime.pro.util.TimeFormatter
 import java.time.Duration
 import java.time.LocalDateTime
@@ -454,30 +453,16 @@ fun TodayScreen(
     }
 
     if (showQuickTimePicker) {
-        val pickerState = rememberTimePickerState(
-            initialHour = quickTime.hour,
-            initialMinute = quickTime.minute,
-            is24Hour = use24Hour
-        )
-        AlertDialog(
-            onDismissRequest = { showQuickTimePicker = false },
-            title = { Text("打卡时刻") },
-            confirmButton = {
-                TextButton(onClick = {
-                    val hour = pickerState.hour
-                    val minute = pickerState.minute
-                    if (hour in 0..23 && minute in 0..59) {
-                        manualQuickTimes[quickType] = LocalTime.of(hour, minute)
-                    } else {
-                        Toast.makeText(context, "时间无效", Toast.LENGTH_SHORT).show()
-                    }
-                    showQuickTimePicker = false
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showQuickTimePicker = false }) { Text("取消") }
-            },
-            text = { TimePicker(state = pickerState) }
+        TimePickerDialog(
+            title = "打卡时刻",
+            subtitle = "今天 · ${TimeFormatter.weekdayCN(state.today)}",
+            initialTime = quickTime,
+            use24Hour = use24Hour,
+            onDismiss = { showQuickTimePicker = false },
+            onConfirm = { picked ->
+                manualQuickTimes[quickType] = picked
+                showQuickTimePicker = false
+            }
         )
     }
 }
