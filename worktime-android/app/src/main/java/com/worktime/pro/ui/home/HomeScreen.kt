@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -55,7 +56,8 @@ fun HomeScreen(
     onOpenDay: (String) -> Unit,
     onOpenCamera: () -> Unit,
     onOpenManual: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenSummary: () -> Unit
 ) {
     val viewModel: HomeViewModel = viewModel(factory = factory)
     val days by viewModel.days.collectAsState()
@@ -71,8 +73,13 @@ fun HomeScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("工时助手", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "设置")
+            Row {
+                IconButton(onClick = onOpenSummary) {
+                    Icon(Icons.Filled.BarChart, contentDescription = "统计")
+                }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.Settings, contentDescription = "设置")
+                }
             }
         }
 

@@ -21,13 +21,14 @@ import com.worktime.pro.ui.detail.DayDetailScreen
 import com.worktime.pro.ui.home.HomeScreen
 import com.worktime.pro.ui.manual.ManualEntryScreen
 import com.worktime.pro.ui.settings.SettingsScreen
+import com.worktime.pro.ui.summary.SummaryScreen
 import com.worktime.pro.ui.theme.WorkTimeTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as WorkTimeApplication
-        val factory = ViewModelFactory(app.repository, app.settings)
+        val factory = ViewModelFactory(app.repository, app.settings, app.backupManager)
 
         setContent {
             WorkTimeTheme {
@@ -43,7 +44,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenDay = { date -> navController.navigate("day/$date") },
                                 onOpenCamera = { navController.navigate("camera") },
                                 onOpenManual = { navController.navigate("manual") },
-                                onOpenSettings = { navController.navigate("settings") }
+                                onOpenSettings = { navController.navigate("settings") },
+                                onOpenSummary = { navController.navigate("summary") }
                             )
                         }
                         composable("camera") {
@@ -82,6 +84,12 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("settings") {
                             SettingsScreen(
+                                factory = factory,
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("summary") {
+                            SummaryScreen(
                                 factory = factory,
                                 onBack = { navController.popBackStack() }
                             )

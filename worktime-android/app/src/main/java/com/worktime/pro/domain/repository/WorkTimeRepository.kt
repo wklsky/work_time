@@ -95,6 +95,14 @@ class WorkTimeRepository(
         recalculate(event.workDate)
     }
 
+    /** 查询日期区间内的工时段，供统计汇总与报表导出使用 */
+    suspend fun getSessionsInRange(start: String, end: String): List<WorkSessionEntity> =
+        sessionDao.getByRange(start, end)
+
+    /** 查询区间内的打卡事件，供报表导出展示四类原始时间 */
+    suspend fun getEventsInRange(start: String, end: String): List<PunchEventEntity> =
+        punchDao.getByRange(start, end)
+
     /**
      * 重算某日工时段：先清空旧结果，再按类型配对事件成段并计算。
      * 业务规则：WORK_START/WORK_END 按时间顺序交替配对成 REGULAR 段；
