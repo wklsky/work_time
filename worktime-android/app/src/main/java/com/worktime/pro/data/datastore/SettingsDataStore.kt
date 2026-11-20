@@ -40,15 +40,16 @@ enum class ThemeMode(val value: String, val label: String) {
 
 data class AppSettings(
     val calendarDisplayMode: String = CalendarDisplayMode.WORK_TIME.value,
-    val timeFormat: String = TimeFormatMode.SYSTEM.value,
+    /** 默认 24 小时制，符合工时记录场景对精确时间的需求 */
+    val timeFormat: String = TimeFormatMode.HOUR_24.value,
     val showOvertimeShade: Boolean = true,
     val defaultInputMode: String = "OCR",
     val ocrAutoFill: Boolean = true,
     val backupIncludePhotos: Boolean = false,
     /** 用户自定义的考勤机状态映射，序列化字符串；空串表示使用默认映射 */
     val statusMapping: String = "",
-    /** 主题模式，默认跟随系统 */
-    val themeMode: String = ThemeMode.SYSTEM.value
+    /** 默认白天（浅色）模式，界面更明亮清晰 */
+    val themeMode: String = ThemeMode.LIGHT.value
 )
 
 class SettingsDataStore(private val context: Context) {
@@ -66,13 +67,13 @@ class SettingsDataStore(private val context: Context) {
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
             calendarDisplayMode = prefs[Keys.CALENDAR_DISPLAY] ?: CalendarDisplayMode.WORK_TIME.value,
-            timeFormat = prefs[Keys.TIME_FORMAT] ?: TimeFormatMode.SYSTEM.value,
+            timeFormat = prefs[Keys.TIME_FORMAT] ?: TimeFormatMode.HOUR_24.value,
             showOvertimeShade = prefs[Keys.OVERTIME_SHADE] ?: true,
             defaultInputMode = prefs[Keys.DEFAULT_INPUT] ?: "OCR",
             ocrAutoFill = prefs[Keys.OCR_AUTO_FILL] ?: true,
             backupIncludePhotos = prefs[Keys.BACKUP_PHOTOS] ?: false,
             statusMapping = prefs[Keys.STATUS_MAPPING] ?: "",
-            themeMode = prefs[Keys.THEME_MODE] ?: ThemeMode.SYSTEM.value
+            themeMode = prefs[Keys.THEME_MODE] ?: ThemeMode.LIGHT.value
         )
     }
 
