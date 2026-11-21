@@ -35,8 +35,64 @@ class OcrFieldExtractor {
         text: Text,
         photoDate: LocalDate = LocalDate.now(),
         statusMapping: Map<String, PunchType> = StatusMapping.DEFAULT
-    ): List<OcrCandidate> =
-        extractFromLines(text.textBlocks.flatMap { block -> block.lines.map { it.text } }, photoDate, statusMapping)
+    ): List<OcrCandidate> {
+        // 按行重组文本：ML Kit 可能将一行拆分成多个文本块
+        val lines = groupTextElementsByRow(text)
+        return extractFromLines(lines, photoDate, statusMapping)
+    }
+
+    /**
+     * 按行重组文本元素：将同一水平线上的文本块按从左到右顺序拼接
+     */
+    private fun groupTextElementsByRow(text: Text): List<String> {
+        val elements = mutableListOf<TextElement>()
+
+        // 收集所有文本元素及其位置
+        for (block in text.textBlocks) {
+            for (line in block.lines) {
+                for (element in line.elements) {
+                    element.boundingBox?.let { box ->
+                        elements.add(TextElement(element.text, box))
+                    }
+                }
+            }
+        }
+
+        if (elements.isEmpty()) {
+            return text.textBlocks.flatMap { block -> block.lines.map { it.text } }
+        }
+
+        // 按 Y 坐标排序
+        val sorted = elements.sortedBy { it.box.top }
+        val rows = mutableListOf<MutableList<TextElement>>()
+        var currentRow = mutableListOf(sorted.first())
+
+        for (i in 1 until sorted.size) {
+            val current = sorted[i]
+            val previous = sorted[i - 1]
+
+            // Y 坐标差异小于阈值则认为在同一行
+            val yThreshold = previous.box.height() * 0.6f
+            if (kotlin.math.abs(current.box.top - previous.box.top) < yThreshold) {
+                currentRow.add(current)
+            } else {
+                rows.add(currentRow)
+                currentRow = mutableListOf(current)
+            }
+        }
+        rows.add(currentRow)
+
+        // 每行内按 X 坐标排序并拼接
+        return rows.map { row ->
+            row.sortedBy { it.box.left }
+                .joinToString(" ") { it.text }
+        }
+    }
+
+    private data class TextElement(
+        val text: String,
+        val box: android.graphics.Rect
+    )
 
     /**
      * 基于文本行的抽取逻辑，剥离 ML Kit 依赖以便单元测试覆盖真实考勤机版式。
@@ -81,18 +137,73 @@ class OcrFieldExtractor {
                 }
             }
         }
+
+        // 验证和优化识别结果
+        return validateAndOptimize(candidates)
+    }
+
+    /**
+     * 验证识别结果的合理性，提升准确率
+     * - 过滤重复记录
+     * - 调整置信度
+     * - 按日期时间升序返回（确认页按「第 1 段…第 N 段」展示）
+     * - 限制记录数量（考虑多天记录最多6条）
+     */
+    private fun validateAndOptimize(candidates: List<OcrCandidate>): List<OcrCandidate> {
         return candidates
+            .distinctBy { "${it.date}_${it.time}_${it.type}" }
+            .map { candidate -> adjustConfidenceByTime(candidate) }
+            .sortedWith(compareBy({ it.date }, { it.time }))
+            .take(6)
+    }
+
+    /**
+     * 根据打卡时间合理性调整置信度
+     */
+    private fun adjustConfidenceByTime(candidate: OcrCandidate): OcrCandidate {
+        val time = candidate.time ?: return candidate
+        val hour = time.hour
+
+        val isReasonable = when (candidate.type) {
+            PunchType.WORK_START -> hour in 6..10  // 上班通常在 6-10 点
+            PunchType.WORK_END -> hour in 16..20   // 下班通常在 16-20 点
+            PunchType.OT_START -> hour in 17..23   // 加班开始在 17-23 点
+            PunchType.OT_END -> hour in 18..23 || hour in 0..2  // 加班结束在 18-23 点或凌晨
+            null -> true // 类型未知，不调整
+        }
+
+        // 如果时间不合理，降低置信度
+        return if (!isReasonable && candidate.confidence == Confidence.HIGH) {
+            candidate.copy(confidence = Confidence.MEDIUM)
+        } else {
+            candidate
+        }
     }
 
     /**
      * 提取状态列数字：取日期时间之后、行尾附近的独立 1 位数字。
      * 业务规则：考勤机状态列只可能是 0/1/4/5，行尾" F 5"中取最后的 5；
      * 工号（006962）等在日期之前，不会被误取。
+     *
+     * 优化：优先识别有效状态码（0/1/4/5），过滤其他数字干扰
      */
     private fun extractStatusCode(line: String, afterIndex: Int): String? {
         val tail = line.substring(afterIndex + 1)
-        val matches = Regex("(?:^|\\D)([0-9])(?:\\D|$)").findAll(tail).toList()
-        return matches.lastOrNull()?.groupValues?.get(1)
+
+        // 用前后断言而非 (?:^|\D) / (?:\D|$) 消费分隔符：形如 " F 2 0" 时，
+        // 旧写法会把 "2" 后的空格吃掉，导致紧邻的 "0" 匹配不到、状态码误判为 2。
+        val allMatches = Regex("(?<![0-9])([0-9])(?![0-9])")
+            .findAll(tail)
+            .map { it.groupValues[1] }
+            .toList()
+
+        if (allMatches.isEmpty()) return null
+
+        // 优先选择有效状态码 0/1/4/5
+        val validCodes = allMatches.filter { it in listOf("0", "1", "4", "5") }
+
+        // 如果有有效状态码，取最后一个；否则取最后一个数字
+        return validCodes.lastOrNull() ?: allMatches.lastOrNull()
     }
 
     /** 屏幕日期只有 MM-DD，用拍照年份补全；跨年场景（12月拍到1月记录）按用户拍照年处理 */
