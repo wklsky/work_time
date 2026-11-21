@@ -3,4 +3,6 @@
     <files-path name="evidence" path="evidence/" />
     <files-path name="backup" path="backup/" />
     <cache-path name="cache" path="/" />
+    <!-- 更新包由 DownloadManager 下载到外部私有目录，安装时经 FileProvider 授权给系统安装器 -->
+    <external-files-path name="update" path="Download/" />
 </paths>

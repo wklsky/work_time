@@ -11,6 +11,7 @@ import com.worktime.pro.data.db.WorkTimeDatabase
 import com.worktime.pro.domain.backup.BackupManager
 import com.worktime.pro.domain.reminder.ReminderCoordinator
 import com.worktime.pro.domain.repository.WorkTimeRepository
+import com.worktime.pro.domain.update.UpdateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +22,8 @@ class WorkTimeApplication : Application() {
     lateinit var settings: SettingsDataStore
         private set
     lateinit var backupManager: BackupManager
+        private set
+    lateinit var updateManager: UpdateManager
         private set
 
     /** 应用级作用域：页面切换/退到后台后仍可继续观察今日打卡并排定提醒 */
@@ -50,5 +53,7 @@ class WorkTimeApplication : Application() {
             settings = settings
         )
         reminderCoordinator.start(applicationScope)
+        // 更新检查与应用同生命周期：下载进度轮询在页面切换后仍需继续
+        updateManager = UpdateManager(this, applicationScope)
     }
 }

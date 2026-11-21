@@ -25,6 +25,10 @@ Thumbs.db
 .env.*.local
 *.log
 local.properties
+# 发布签名口令与密钥：泄露等于别人可以伪造你的升级包
+keystore.properties
+*.jks
+*.keystore
 
 # ===== Java =====
 *.class

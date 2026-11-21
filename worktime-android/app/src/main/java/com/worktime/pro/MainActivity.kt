@@ -35,6 +35,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +74,7 @@ import com.worktime.pro.ui.summary.SummaryScreen
 import com.worktime.pro.ui.theme.CustomThemeScreen
 import com.worktime.pro.ui.theme.WorkTimeTheme
 import com.worktime.pro.ui.today.TodayScreen
+import com.worktime.pro.ui.update.UpdateDialogHost
 
 /** 底部导航项定义 */
 private data class TabItem(val route: String, val label: String, val icon: ImageVector)
@@ -95,6 +97,9 @@ class MainActivity : ComponentActivity() {
             val settings by app.settings.settings.collectAsState(
                 initial = com.worktime.pro.data.datastore.AppSettings()
             )
+            val updateState by app.updateManager.state.collectAsState()
+            // 冷启动查一次更新：内部有 24 小时冷却与"跳过"记忆，重建 Activity 不会重复请求
+            LaunchedEffect(Unit) { app.updateManager.checkOnLaunch() }
             WorkTimeTheme(
                 themeMode = settings.themeMode,
                 customThemeEnabled = settings.customThemeEnabled,
@@ -179,11 +184,21 @@ class MainActivity : ComponentActivity() {
                                 AppNavHost(
                                     navController = navController,
                                     factory = factory,
-                                    lastMainTab = lastMainTab
+                                    lastMainTab = lastMainTab,
+                                    onCheckUpdate = { app.updateManager.checkManually() }
                                 )
                             }
                         }
                     }
+
+                    // 弹窗挂在导航图外层：任何页面（含设置页、二级页）都能收到更新提示
+                    UpdateDialogHost(
+                        state = updateState,
+                        currentVersion = app.updateManager.currentVersionName,
+                        onDownload = { app.updateManager.startDownload() },
+                        onInstall = { app.updateManager.installPending() },
+                        onDismiss = { app.updateManager.dismiss() }
+                    )
                 }
             }
         }
@@ -194,7 +209,8 @@ class MainActivity : ComponentActivity() {
 private fun AppNavHost(
     navController: NavHostController,
     factory: ViewModelFactory,
-    lastMainTab: String
+    lastMainTab: String,
+    onCheckUpdate: () -> Unit
 ) {
     // rememberUpdatedState 保证导航图里的旧 lambda 也能读到最新来源 Tab
     val originTab by rememberUpdatedState(lastMainTab)
@@ -237,7 +253,8 @@ private fun AppNavHost(
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenSummary = { navController.navigate("summary") },
                 onOpenManual = { navController.navigate("manual") },
-                onOpenHabits = { navController.navigate("habits") }
+                onOpenHabits = { navController.navigate("habits") },
+                onCheckUpdate = onCheckUpdate
             )
         }
         composable("habits") {

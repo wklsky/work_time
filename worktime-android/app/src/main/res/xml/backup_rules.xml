@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  声明了 include 后即为白名单：除 database 与 sharedpref 外一律不备份，
+  external 域（含更新包下载目录）自然被排除，无需再写 exclude（lint 会因路径不在 include 内报错）。
+-->
 <full-backup-content>
     <include domain="database" path="." />
     <include domain="sharedpref" path="." />
-    <exclude domain="external" path="." />
 </full-backup-content>

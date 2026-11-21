@@ -116,8 +116,8 @@
 
 ```
 com.worktime.pro/
-├── MainActivity.kt          UI 骨架、导航状态、权限申请
-├── WorkTimeApplication.kt   全局容器，常驻 ReminderCoordinator
+├── MainActivity.kt          UI 骨架、导航状态、权限申请、更新弹窗宿主
+├── WorkTimeApplication.kt   全局容器，常驻 ReminderCoordinator / UpdateManager
 ├── ui/
 │   ├── ViewModelFactory.kt  手写 ViewModel 工厂
 │   ├── LocalProviders.kt    CompositionLocal（主题/设置注入）
@@ -133,6 +133,7 @@ com.worktime.pro/
 │   │                   共享组件 SettingsComponents / SettingsViewModel + BackupViewModel
 │   ├── mine/           「我的」入口聚合 MineScreen / MineViewModel
 │   ├── theme/          Theme.kt / CustomPalette.kt / CustomThemeScreen
+│   ├── update/         UpdateDialog（按状态机渲染更新弹窗）
 │   └── components/     TimePickerDialog（校时器）/ ColorPickerDialog / EvidenceViewer /
 │                       WindowAdaptive（窗口档位与内容限宽容器）
 ├── domain/
@@ -146,6 +147,9 @@ com.worktime.pro/
 │   ├── reminder/       ReminderPlanner / ReminderScheduler / ReminderReceiver /
 │   │                   ReminderNotification / ReminderCoordinator / ReminderBootReceiver / ReminderType
 │   ├── backup/         BackupManager
+│   ├── update/         UpdateManager（编排与节流）/ UpdateChecker（Release API）/
+│   │                   UpdateInstaller（DownloadManager + FileProvider）/
+│   │                   UpdateResponseParser（JSON 解析）/ VersionComparator / UpdateConfig
 │   ├── model/          Models / SummaryModels / DayTotals
 │   └── repository/     WorkTimeRepository
 ├── data/
@@ -158,6 +162,12 @@ com.worktime.pro/
 > 纵向空间还给内容；窄屏保持底部 `NavigationBar`。内层统一套 `AdaptiveContent`，所有路由单列内容限宽 640dp 居中，
 > 避免平板上正文行被拉到整屏宽。窗口档位由 `rememberAppWindowSize()` 依
 > `screenWidthDp` 判定（COMPACT <600 / MEDIUM 600–839 / EXPANDED ≥840），未引入 `window-size-class` 依赖。
+
+> **应用更新链路**：`UpdateManager` 持有唯一状态流，冷启动按 24 小时冷却静默检查
+> `api.github.com/repos/wklsky/work_time/releases/latest`，按 tag 与本机 `versionName` 逐段比数值；
+> 确认有新版本后交 `DownloadManager` 下载至应用私有目录，完成后经 `FileProvider` 拉起系统安装器。
+> 检查时间戳存独立 `SharedPreferences("update_state")`——它不属于用户设置，若进 DataStore 会被备份带走，
+> 换机恢复后 24 小时内不再检查。
 
 ---
 

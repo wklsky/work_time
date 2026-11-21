@@ -1,9 +1,31 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+/**
+ * 发布签名从项目根目录 keystore.properties 读取（该文件与 .jks 都不进版本库）。
+ * 缺失时回落 debug 签名，保证没有密钥的机器仍能 assembleRelease 出可安装包；
+ * 但 debug 与 release 签名不一致会导致覆盖安装失败，正式发布必须提供自己的 keystore。
+ *
+ * keystore.properties 示例：
+ *   storeFile=keystore/worktime-release.jks
+ *   storePassword=******
+ *   keyAlias=worktime
+ *   keyPassword=******
+ */
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { load(it) }
+    }
+}
+val hasReleaseKeystore = keystoreProperties.isNotEmpty()
 
 android {
     namespace = "com.worktime.pro"
@@ -15,11 +37,24 @@ android {
         applicationId = "com.worktime.pro"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "2.0.0"
+        // 发布新版必须先递增 versionCode（系统只在更大时才允许覆盖安装），
+        // versionName 需与 GitHub Release 的 tag（vX.Y.Z）保持一致，更新检测靠它比对
+        versionCode = 2
+        versionName = "2.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+    }
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -29,6 +64,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 没有 keystore 时用 debug 签名，保证流程可跑通；正式发布请配置 keystore.properties
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
@@ -93,6 +134,8 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    // 单测跑在 JVM，android.jar 里的 org.json 是空实现，需真实实现才能解析 Release JSON
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

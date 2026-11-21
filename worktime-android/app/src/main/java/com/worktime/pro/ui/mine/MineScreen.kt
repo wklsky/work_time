@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
@@ -55,7 +56,8 @@ fun MineScreen(
     onOpenSettings: () -> Unit,
     onOpenSummary: () -> Unit,
     onOpenManual: () -> Unit,
-    onOpenHabits: () -> Unit
+    onOpenHabits: () -> Unit,
+    onCheckUpdate: () -> Unit
 ) {
     val viewModel: MineViewModel = viewModel(factory = factory)
     val stats by viewModel.stats.collectAsState()
@@ -152,6 +154,8 @@ fun MineScreen(
                 MenuItem(icon = Icons.Filled.TouchApp, title = "习惯打卡", onClick = onOpenHabits)
                 MenuDivider()
                 MenuItem(icon = Icons.Filled.Settings, title = "设置", onClick = onOpenSettings)
+                MenuDivider()
+                MenuItem(icon = Icons.Filled.SystemUpdate, title = "检查更新", onClick = onCheckUpdate)
             }
         }
     }

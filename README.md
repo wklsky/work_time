@@ -8,7 +8,7 @@
 
 **零后端、零服务器、零网络请求（未申请 INTERNET 权限），数据完全留在手机本地。**
 
-> 最近更新：2026-11-21 · 设置改为多级目录、补齐多尺寸屏幕适配 · 单元测试 60 项全绿
+> 最近更新：2026-11-21 · 设置改为多级目录、补齐多尺寸屏幕适配、新增 GitHub Release 自动更新 · 单元测试 74 项全绿
 
 ---
 
@@ -56,10 +56,10 @@ UI 包：`today`（今日台账+时间带）、`home`（月历）、`camera`（�
 ```bash
 cd worktime-android
 
-# 运行单元测试（工时引擎、多段配对、时间线校验、口径、OCR、汇总、习惯，共 60 项）
+# 运行单元测试（工时引擎、多段配对、时间线校验、口径、OCR、汇总、习惯、版本比较，共 74 项）
 gradlew.bat :app:testDebugUnitTest
 
-# 构建 Debug APK（输出：app/build/outputs/apk/debug/app-debug.apk）
+# 构建 Debug APK（输出：app/build/outputs/apk/debug/工时助手.apk）
 gradlew.bat :app:assembleDebug
 
 # 编译并安装到已连接的设备
@@ -75,15 +75,63 @@ gradlew.bat clean :app:assembleDebug
 
 ```bash
 # 安装/覆盖安装
-adb install -r worktime-android/app/build/outputs/apk/debug/app-debug.apk
+adb install -r worktime-android/app/build/outputs/apk/debug/工时助手.apk
 
 # 启动
 adb shell am start -n com.worktime.pro/.MainActivity
 ```
 
 - Debug 包使用自动生成的调试签名，可直接安装；`applicationId` 为 `com.worktime.pro`。
-- `release` 构建类型目前**未配置 `signingConfig`**，`assembleRelease` 只会产出未签名 APK，正式分发前需补充
-  keystore 与签名配置。
+- Debug 与 Release 签名不同，**不能互相覆盖**，切换时需先卸载。
+
+## 发布与自动更新
+
+应用通过 GitHub Release 自查更新（`wklsky/work_time`，公开仓库），发布后老版本用户下次启动即收到提示。
+
+### 1. 生成发布密钥（仅首次）
+
+密钥丢失意味着已装用户永远无法升级，务必离线备份：
+
+```bash
+keytool -genkeypair -v -keystore keystore/worktime-release.jks ^
+  -alias worktime -keyalg RSA -keysize 2048 -validity 10000
+```
+
+在项目根目录建 `keystore.properties`（已在 `.gitignore` 中，不会入库）：
+
+```properties
+storeFile=keystore/worktime-release.jks
+storePassword=你的口令
+keyAlias=worktime
+keyPassword=你的口令
+```
+
+没有该文件时 `assembleRelease` 回落 debug 签名，仅够本地跑通流程。
+
+### 2. 打 Release 包
+
+```bash
+gradlew.bat :app:assembleRelease
+# 产物：app/build/outputs/apk/release/app-release.apk
+```
+
+### 3. 发布到 GitHub
+
+1. 先改 `versionCode`（每次 +1）与 `versionName`（如 2.1.0）
+2. Releases → Draft a new release，tag 填 `v2.1.0`（必须与 `versionName` 一致）
+3. 上传 `app-release.apk`，**文件名不要改**——客户端按 `app-release.apk` 匹配资产
+4. 点 Publish release（草稿状态 API 查不到）
+
+### 4. 更新机制
+
+| 场景 | 行为 |
+|------|------|
+| 冷启动 | 24 小时内最多查一次；有新版本弹窗，已是最新或请求失败均静默 |
+| 我的 → 检查更新 | 跳过节流，明确提示「已是最新」或失败原因 |
+| 下载 | 系统 `DownloadManager` 下载到应用私有目录，通知栏可见进度，断点续传 |
+| 安装 | 首次需授权「安装未知应用」，之后下载完成自动拉起系统安装器 |
+
+> 未认证的 GitHub API 按 IP 限流 60 次/小时，共享出口 IP 下可能返回 403，已做静默降级。部分网络环境直连 GitHub 不稳定时，检查更新会提示失败但不影响其他功能。
 
 ---
 
@@ -102,6 +150,7 @@ adb shell am start -n com.worktime.pro/.MainActivity
 | 图片 | Coil 2.7 | 凭证图加载 |
 | 图表 | Compose Canvas 自绘 | 未引入第三方图表库，包体更小 |
 | 提醒 | AlarmManager + Notification | 无 WorkManager 依赖，开机/更新后自动重排 |
+| 更新 | GitHub Releases API + DownloadManager | 原生 `HttpURLConnection` + `org.json`，未新增网络库 |
 
 ---
 
@@ -143,6 +192,11 @@ adb shell am start -n com.worktime.pro/.MainActivity
 - **内容限宽**：全部页面单列内容限宽 640dp 居中，平板与横屏下不把正文拉成整屏宽
 - **极端尺寸**：320dp 极窄屏叠加系统字体 1.3x 仍不截断、不越界；页面统一消费系统栏 insets，全面屏与手势导航不遮挡内容
 
+**更新**
+- **自动检查**：冷启动 24 小时内查一次 GitHub Release，按 tag 与 `versionName` 比对，有新版本才弹窗
+- **下载安装**：`DownloadManager` 后台下载并可继续使用应用，完成后自动拉起系统安装器
+- **手动检查**：「我的 → 检查更新」跳过节流，明确提示已是最新或失败原因
+
 ---
 
 ## 权限说明
@@ -153,8 +207,10 @@ adb shell am start -n com.worktime.pro/.MainActivity
 | `READ_MEDIA_IMAGES`（API 33+）/ `READ_EXTERNAL_STORAGE`（≤32） | 读取相册图片备用 | 不申请写外部存储权限 |
 | `POST_NOTIFICATIONS`（API 33+） | 发送工时提醒 | 开启提醒时申请，拒绝则提示且不阻塞其他功能 |
 | `RECEIVE_BOOT_COMPLETED` | 开机后重排提醒闹钟 | 仅做提醒重排，不后台自启业务 |
+| `INTERNET` | 读取 GitHub Release 版本信息、下载更新包 | 仅更新检查使用，不上传任何数据 |
+| `REQUEST_INSTALL_PACKAGES` | 安装已下载的更新包 | Android 8.0+ 需用户先允许「安装未知应用」 |
 
-**未申请 `INTERNET` 权限**，全流程离线。
+**除更新检查外全流程离线**：联网只用于读取版本号与下载安装包，打卡记录、照片、规则配置均不出本机。
 
 ---
 
