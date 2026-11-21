@@ -13,8 +13,11 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.core.tween
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -25,6 +28,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +43,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -48,6 +55,9 @@ import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.ui.camera.CameraScreen
 import com.worktime.pro.ui.camera.ConfirmScreen
+import com.worktime.pro.ui.components.AdaptiveContent
+import com.worktime.pro.ui.components.AppWindowSize
+import com.worktime.pro.ui.components.rememberAppWindowSize
 import com.worktime.pro.ui.detail.DayDetailScreen
 import com.worktime.pro.ui.home.HomeScreen
 import com.worktime.pro.ui.manual.ManualEntryScreen
@@ -102,28 +112,30 @@ class MainActivity : ComponentActivity() {
                     var lastMainTab by remember { mutableStateOf("today") }
                     // 仅三个主 Tab 显示底部导航，进入子页面（拍照/详情/设置等）时隐藏
                     val showBottomBar = currentRoute?.destination?.route in TAB_ROUTES
+                    // 宽屏与横屏把 Tab 收进侧边导航：手机横屏与平板纵向高度紧张，底部栏会挤压内容
+                    val useRail = showBottomBar && rememberAppWindowSize() != AppWindowSize.COMPACT
+                    // Tab 切换规则两处复用：清空中间栈并保存/恢复各 Tab 自己的返回栈
+                    val onSelectTab: (TabItem) -> Unit = { tab ->
+                        lastMainTab = tab.route
+                        navController.navigate(tab.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
 
                     Scaffold(
                         bottomBar = {
-                            if (showBottomBar) {
+                            if (showBottomBar && !useRail) {
                                 NavigationBar(
                                     containerColor = MaterialTheme.colorScheme.surface
                                 ) {
                                     TAB_ITEMS.forEach { tab ->
-                                        val selected = currentRoute?.destination?.route == tab.route
                                         NavigationBarItem(
-                                            selected = selected,
-                                            onClick = {
-                                                lastMainTab = tab.route
-                                                navController.navigate(tab.route) {
-                                                    // 切换 Tab 时清空中间栈，回退直达起始页
-                                                    popUpTo(navController.graph.findStartDestination().id) {
-                                                        saveState = true
-                                                    }
-                                                    launchSingleTop = true
-                                                    restoreState = true
-                                                }
-                                            },
+                                            selected = currentRoute?.destination?.route == tab.route,
+                                            onClick = { onSelectTab(tab) },
                                             icon = { Icon(tab.icon, contentDescription = tab.label) },
                                             label = { Text(tab.label) },
                                             colors = NavigationBarItemDefaults.colors(
@@ -138,12 +150,38 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     ) { padding ->
-                        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                            AppNavHost(
-                                navController = navController,
-                                factory = factory,
-                                lastMainTab = lastMainTab
-                            )
+                        Row(modifier = Modifier.fillMaxSize().padding(padding)) {
+                            if (useRail) {
+                                NavigationRail(
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    // Scaffold 已消费系统栏 insets，这里声明空 insets 避免二次留白
+                                    windowInsets = WindowInsets(0, 0, 0, 0)
+                                ) {
+                                    Spacer(Modifier.height(12.dp))
+                                    TAB_ITEMS.forEach { tab ->
+                                        NavigationRailItem(
+                                            selected = currentRoute?.destination?.route == tab.route,
+                                            onClick = { onSelectTab(tab) },
+                                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                            label = { Text(tab.label) },
+                                            colors = NavigationRailItemDefaults.colors(
+                                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                            // 单列内容限宽居中：平板与横屏不把一行文字拉成整屏宽
+                            AdaptiveContent(modifier = Modifier.weight(1f)) {
+                                AppNavHost(
+                                    navController = navController,
+                                    factory = factory,
+                                    lastMainTab = lastMainTab
+                                )
+                            }
                         }
                     }
                 }
