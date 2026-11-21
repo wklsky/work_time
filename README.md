@@ -117,10 +117,11 @@ gradlew.bat :app:assembleRelease
 
 ### 3. 发布到 GitHub
 
-1. 先改 `versionCode`（每次 +1）与 `versionName`（如 2.1.0）
-2. Releases → Draft a new release，tag 填 `v2.1.0`（必须与 `versionName` 一致）
-3. 上传 `app-release.apk`，**文件名不要改**——客户端按 `app-release.apk` 匹配资产
-4. 点 Publish release（草稿状态 API 查不到）
+1. 先改 `versionCode`（每次 +1）与 `versionName`（如 2.1.1）
+2. Releases → Draft a new release，tag 填 `v2.1.1`（必须与 `versionName` 一致；大小写 `V` 也兼容）
+3. 上传产物并命名为 `WorkTime.apk`——客户端按 `UpdateConfig.APK_ASSET_NAME` 精确匹配，
+   改资产名就必须同步改该常量，否则 `releases/latest/download/` 固定直链兜底会 404
+4. 点 Publish release（草稿状态与预发布态 API 都查不到，务必勾选 latest）
 
 ### 4. 更新机制
 

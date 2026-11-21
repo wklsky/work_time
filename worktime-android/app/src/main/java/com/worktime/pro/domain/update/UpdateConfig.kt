@@ -14,8 +14,9 @@ object UpdateConfig {
     /**
      * Release 里 APK 资产必须固定叫这个名字：`releases/latest/download/` 是唯一不依赖 API 的固定直链，
      * API 限流或资产列表缺失时用它兜底。
+     * 改名时（含大小写）必须同步改这里，否则兜底直链会 404；主路径仍可凭 `.apk` 后缀识别。
      */
-    const val APK_ASSET_NAME = "app-release.apk"
+    const val APK_ASSET_NAME = "WorkTime.apk"
 
     const val FALLBACK_APK_URL = "https://github.com/$REPO/releases/latest/download/$APK_ASSET_NAME"
 
