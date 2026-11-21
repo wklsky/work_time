@@ -53,6 +53,11 @@ import com.worktime.pro.ui.home.HomeScreen
 import com.worktime.pro.ui.manual.ManualEntryScreen
 import com.worktime.pro.ui.mine.MineScreen
 import com.worktime.pro.ui.rules.WorkRulesScreen
+import com.worktime.pro.ui.settings.SettingsDataScreen
+import com.worktime.pro.ui.settings.SettingsDisplayScreen
+import com.worktime.pro.ui.settings.SettingsMappingScreen
+import com.worktime.pro.ui.settings.SettingsPunchScreen
+import com.worktime.pro.ui.settings.SettingsReminderScreen
 import com.worktime.pro.ui.settings.SettingsScreen
 import com.worktime.pro.ui.summary.SummaryScreen
 import com.worktime.pro.ui.theme.CustomThemeScreen
@@ -246,13 +251,49 @@ private fun AppNavHost(
                 onBack = { navController.popBackStack() }
             )
         }
+        // 设置：一级目录 + 五个二级页面，返回键逐级回退
         composable("settings") {
             SettingsScreen(
                 factory = factory,
                 onBack = { navController.popBackStack() },
-                onOpenHabits = { navController.navigate("habits") },
+                onOpenPunch = { navController.navigate("settings/punch") },
+                onOpenDisplay = { navController.navigate("settings/display") },
+                onOpenReminder = { navController.navigate("settings/reminder") },
+                onOpenMapping = { navController.navigate("settings/mapping") },
+                onOpenData = { navController.navigate("settings/data") }
+            )
+        }
+        composable("settings/punch") {
+            SettingsPunchScreen(
+                factory = factory,
+                onBack = { navController.popBackStack() },
                 onOpenRules = { navController.navigate("rules") },
+                onOpenHabits = { navController.navigate("habits") }
+            )
+        }
+        composable("settings/display") {
+            SettingsDisplayScreen(
+                factory = factory,
+                onBack = { navController.popBackStack() },
                 onOpenCustomTheme = { navController.navigate("custom-theme") }
+            )
+        }
+        composable("settings/reminder") {
+            SettingsReminderScreen(
+                factory = factory,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("settings/mapping") {
+            SettingsMappingScreen(
+                factory = factory,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("settings/data") {
+            SettingsDataScreen(
+                factory = factory,
+                onBack = { navController.popBackStack() }
             )
         }
         composable("summary") {
