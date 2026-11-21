@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.worktime.pro.data.datastore.CalendarDisplayMode
 import com.worktime.pro.data.datastore.SettingsDataStore
+import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.domain.reminder.ReminderType
 import com.worktime.pro.domain.repository.WorkTimeRepository
 import kotlinx.coroutines.launch
@@ -29,6 +30,11 @@ class SettingsViewModel(
 
     fun setOcrAutoFill(enabled: Boolean) {
         viewModelScope.launch { settings.setOcrAutoFill(enabled) }
+    }
+
+    /** 今日页两种打卡动作都可用时的默认动作，只接受上班/加班到 */
+    fun setDefaultPunchType(type: PunchType) {
+        viewModelScope.launch { settings.setDefaultPunchType(type.name) }
     }
 
     fun setGallerySaveEnabled(enabled: Boolean) {

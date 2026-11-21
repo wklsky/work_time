@@ -44,6 +44,7 @@ class BackupManager(
                 put("timeFormat", settings.timeFormat)
                 put("showOvertimeShade", settings.showOvertimeShade)
                 put("defaultInputMode", settings.defaultInputMode)
+                put("defaultPunchType", settings.defaultPunchType)
                 put("ocrAutoFill", settings.ocrAutoFill)
                 put("gallerySaveEnabled", settings.gallerySaveEnabled)
                 put("statusMapping", settings.statusMapping)
@@ -183,6 +184,9 @@ class BackupManager(
             }
             saved.optString("defaultInputMode").takeIf { it.isNotBlank() }?.let {
                 settingsDataStore.setDefaultInputMode(it)
+            }
+            saved.optString("defaultPunchType").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setDefaultPunchType(it)
             }
             if (saved.has("showOvertimeShade")) {
                 settingsDataStore.setOvertimeShade(saved.optBoolean("showOvertimeShade"))

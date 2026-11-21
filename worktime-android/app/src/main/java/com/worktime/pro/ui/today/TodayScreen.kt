@@ -105,9 +105,14 @@ fun TodayScreen(
     val status = computeTodayStatus(state.events, formatClock(live.liveSeconds))
     // 当前状态只允许闭合正在进行的段，或开启新的上班/加班段
     val allowedQuickTypes = remember(state.events) { allowedQuickTypesFor(state.events) }
-    LaunchedEffect(allowedQuickTypes, status.actionType) {
-        // 状态变化后把默认动作对齐到状态建议，用户仍可在两段都开放时手动切换
-        quickType = status.actionType?.takeIf { it in allowedQuickTypes }
+    // 设置里的默认动作：上班 / 加班到
+    val preferredQuickType = remember(settings.defaultPunchType) {
+        PunchType.entries.firstOrNull { it.name == settings.defaultPunchType }
+            ?: PunchType.WORK_START
+    }
+    LaunchedEffect(allowedQuickTypes, preferredQuickType) {
+        // 两种起始动作都可用时听设置；只剩唯一下一步（下班/加班退）时以状态为准
+        quickType = preferredQuickType.takeIf { it in allowedQuickTypes }
             ?: allowedQuickTypes.first()
     }
 

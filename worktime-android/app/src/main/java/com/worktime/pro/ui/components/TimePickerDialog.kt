@@ -1,16 +1,33 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/main/java/com/worktime/pro/ui/components/TimePickerDialog.kt
- * @Description: 通用时间选择弹窗「校时」：24 小时卡尺时间带 + 大号等宽读数 + 快捷微调，
- *               替代 Material3 表盘样式，统一今日页/手动录入/习惯打卡/工作规则的选时体验。
+ * @Description: 通用时间选择弹窗「校时」：24 小时制双圈表盘（外 1–12 / 内 13–24）+ 可拖动时针/分针
+ *               + 大号等宽读数，选完小时自动进入分钟盘；统一今日页/手动录入/习惯打卡/工作规则的选时体验。
  */
 package com.worktime.pro.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -19,10 +36,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,45 +54,76 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.worktime.pro.util.TimeFormatter
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.time.LocalTime
 import java.util.Locale
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
-private const val MINUTES_IN_DAY = 24 * 60
+private const val HOURS_IN_DAY = 24
+private const val DEGREES_PER_HOUR = 360f / HOURS_IN_DAY
+private const val DEGREES_PER_MINUTE = 360f / 60f
 
-/** 卡尺上每分钟占用的宽度：1 小时约 180dp，一屏能看到约两小时，分钟刻度仍可逐格吸附 */
-private val MINUTE_WIDTH = 3.dp
-private val RULER_HEIGHT = 96.dp
-private val RULER_LABEL_WIDTH = 36.dp
+/** 一圈 12 个落点（24 小时制内外圈共用），每格 30° */
+private const val DEGREES_PER_DIAL_HOUR = 360f / 12f
+
+/** 内外圈数字半径（相对表盘半径），以及区分内外圈的触点分界 */
+private const val OUTER_LABEL_RATIO = 0.86f
+private const val INNER_LABEL_RATIO = 0.60f
+private const val RING_SPLIT_RATIO = 0.73f
+
+/** 指针长度：时针短、分针长，与真实钟表一致 */
+private const val HOUR_HAND_RATIO = 0.56f
+private const val MINUTE_HAND_RATIO = 0.90f
+
+/** 24 小时制双圈：时针长度随圈层变化，指向外圈（1–12）时更长、内圈（13–24）时更短 */
+private const val OUTER_HOUR_HAND_RATIO = 0.76f
+private const val INNER_HOUR_HAND_RATIO = 0.52f
+
+/** 表盘最大边长：再大就会挤压读数与确认按钮 */
+private val CLOCK_DIAL_MAX_SIZE = 284.dp
+
+/** 当前正在调节的指针 */
+private enum class ClockHand { HOUR, MINUTE }
 
 /**
  * 时间选择弹窗。
@@ -92,50 +140,57 @@ fun TimePickerDialog(
     onConfirm: (LocalTime) -> Unit,
     subtitle: String? = null
 ) {
-    val density = LocalDensity.current
-    val minuteWidthPx = with(density) { MINUTE_WIDTH.toPx() }
-    val initialMinute = initialTime.hour * 60 + initialTime.minute
-    val scrollState = rememberScrollState(initial = (initialMinute * minuteWidthPx).roundToInt())
-    val scope = rememberCoroutineScope()
-
-    // 读数跟随时间带实时变化，滚动过程中也能看到当前落点
-    val selectedMinute by remember(minuteWidthPx) {
-        derivedStateOf {
-            (scrollState.value / minuteWidthPx).roundToInt().coerceIn(0, MINUTES_IN_DAY - 1)
+    var hour by remember { mutableIntStateOf(initialTime.hour) }
+    var minute by remember { mutableIntStateOf(initialTime.minute) }
+    var activeHand by remember { mutableStateOf(ClockHand.HOUR) }
+    // 抬手后延迟切盘：切换会重建 pointerInput，若立刻切，本次点击的抬起事件会被分钟盘当作新的按下
+    var hourPickedTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(hourPickedTick) {
+        if (hourPickedTick > 0) {
+            delay(160)
+            activeHand = ClockHand.MINUTE
         }
     }
-    val nowMinute = remember { LocalTime.now().let { it.hour * 60 + it.minute } }
-    val selectedTime = LocalTime.of(selectedMinute / 60, selectedMinute % 60)
 
-    // 松手后吸附到最近的分钟刻度，像卡尺一样「咬合」
-    LaunchedEffect(minuteWidthPx) {
-        snapshotFlow { scrollState.isScrollInProgress }
-            .filter { inProgress -> !inProgress && scrollState.maxValue != Int.MAX_VALUE }
-            .collect {
-                val target = ((scrollState.value / minuteWidthPx).roundToInt() * minuteWidthPx)
-                    .roundToInt()
-                    .coerceIn(0, scrollState.maxValue)
-                if (scrollState.value != target) scrollState.animateScrollTo(target)
-            }
-    }
+    val selectedTime = LocalTime.of(hour, minute)
+    val selectedLabel = TimeFormatter.formatTime(selectedTime, use24Hour)
 
-    fun jumpTo(minute: Int) {
-        val target = (minute.coerceIn(0, MINUTES_IN_DAY - 1) * minuteWidthPx).roundToInt()
-        scope.launch { scrollState.animateScrollTo(target.coerceIn(0, scrollState.maxValue)) }
+    // 弹层入场：轻微上浮 + 放大 + 淡入，一次性编排，不做循环
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        appear.animateTo(1f, tween(durationMillis = 280, easing = FastOutSlowInEasing))
     }
 
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter
         ) {
+            // 弹层最高占屏幕 94%，内容超出时在弹层内滚动，避免顶部标题被裁掉
+            val sheetMaxHeight = maxHeight * 0.94f
+            // 表盘随屏幕高度收缩，保证确认按钮尽量留在首屏
+            val dialSize = minOf(
+                CLOCK_DIAL_MAX_SIZE,
+                maxWidth - 40.dp,
+                maxHeight * 0.40f
+            )
+
             Surface(
                 modifier = Modifier
                     .widthIn(max = 560.dp)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .heightIn(max = sheetMaxHeight)
+                    .graphicsLayer {
+                        val progress = appear.value
+                        alpha = progress
+                        val scale = 0.96f + 0.04f * progress
+                        scaleX = scale
+                        scaleY = scale
+                        translationY = (1f - progress) * 28.dp.toPx()
+                    },
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                 color = MaterialTheme.colorScheme.surface
             ) {
@@ -177,39 +232,60 @@ fun TimePickerDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            TimeFormatter.formatTime(selectedTime, use24Hour),
-                            style = MaterialTheme.typography.displayMedium,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium,
-                            letterSpacing = (-1).sp
+                        TimeReadout(
+                            hour = hour,
+                            minute = minute,
+                            use24Hour = use24Hour,
+                            activeHand = activeHand,
+                            onHandChange = { activeHand = it }
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            subtitle ?: "拖动时间带校准，或点按快捷调整",
+                            // 表盘会随时/分自动切换，提示语跟着当前盘面走，减少用户试错
+                            subtitle ?: if (activeHand == ClockHand.HOUR) {
+                                if (use24Hour) {
+                                    "外圈 1–12 点、内圈 13–24 点，松手后自动切换到分钟"
+                                } else {
+                                    "拖动指针选小时，松手后自动切换到分钟"
+                                }
+                            } else {
+                                "拖动或点按分钟盘选择分钟"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(10.dp))
 
-                    TimeTape(
-                        scrollState = scrollState,
-                        minuteWidth = MINUTE_WIDTH,
-                        nowMinute = nowMinute,
-                        selectedTimeLabel = TimeFormatter.formatTime(selectedTime, use24Hour)
-                    )
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ClockHandToggle(
+                            activeHand = activeHand,
+                            onHandChange = { activeHand = it }
+                        )
+                    }
 
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(12.dp))
 
-                    // 大跨度用小时键、落点用 5 分钟键，避免在 24 小时带上反复甩动
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        QuickKey("现在", Modifier.weight(1f)) { jumpTo(nowMinute) }
-                        QuickKey("−1时", Modifier.weight(1f)) { jumpTo(selectedMinute - 60) }
-                        QuickKey("−5", Modifier.weight(1f)) { jumpTo(selectedMinute - 5) }
-                        QuickKey("+5", Modifier.weight(1f)) { jumpTo(selectedMinute + 5) }
-                        QuickKey("+1时", Modifier.weight(1f)) { jumpTo(selectedMinute + 60) }
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnalogClock(
+                            hour = hour,
+                            minute = minute,
+                            use24Hour = use24Hour,
+                            activeHand = activeHand,
+                            selectedLabel = selectedLabel,
+                            onHourChange = { hour = it },
+                            onMinuteChange = { minute = it },
+                            // 小时选定后自动进入分钟盘，与系统闹钟的「先时后分」一致
+                            onHourPicked = { hourPickedTick++ },
+                            modifier = Modifier.size(dialSize)
+                        )
                     }
 
                     Spacer(Modifier.height(18.dp))
@@ -220,7 +296,7 @@ fun TimePickerDialog(
                         shape = MaterialTheme.shapes.medium
                     ) {
                         Text(
-                            "使用 ${TimeFormatter.formatTime(selectedTime, use24Hour)}",
+                            "使用 $selectedLabel",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -232,194 +308,533 @@ fun TimePickerDialog(
 }
 
 /**
- * 签名元素：24 小时卡尺时间带。
- * 中心固定一根指针，刻度随拖动平移；整点刻度最高并带小时标签，每 5 / 15 分钟逐级加长。
- * 当前位置用一根淡虚线与小圆点标出，方便判断离现在多远。
+ * 大号读数：时/分两段可点按切换当前指针，当前调节段用主题色高亮。
+ * 12 小时制下在小时前显示上午/下午，拖动跨过 12 点会实时切换。
  */
 @Composable
-private fun TimeTape(
-    scrollState: androidx.compose.foundation.ScrollState,
-    minuteWidth: Dp,
-    nowMinute: Int,
-    selectedTimeLabel: String
+private fun TimeReadout(
+    hour: Int,
+    minute: Int,
+    use24Hour: Boolean,
+    activeHand: ClockHand,
+    onHandChange: (ClockHand) -> Unit
 ) {
-    val density = LocalDensity.current
-    val minuteWidthPx = with(density) { minuteWidth.toPx() }
-    val ruleColor = MaterialTheme.colorScheme.outline
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val needleColor = MaterialTheme.colorScheme.secondary
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val labelWidthPx = with(density) { RULER_LABEL_WIDTH.toPx() }
+    val hourText = if (use24Hour) {
+        String.format(Locale.US, "%02d", hour)
+    } else {
+        ((hour + 11) % 12 + 1).toString()
+    }
+    val minuteText = String.format(Locale.US, "%02d", minute)
 
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(RULER_HEIGHT)
-            .clearAndSetSemantics {
-                contentDescription = "24 小时时间带，当前选择 $selectedTimeLabel，拖动可校准"
-            }
-    ) {
-        val widthPx = with(density) { maxWidth.toPx() }
-        val centerX = widthPx / 2f
-        // 内层 Box 的 BoxScope 会遮蔽 BoxWithConstraints 的 maxWidth，先在此处取好内容宽度
-        val contentWidth = maxWidth + minuteWidth * (MINUTES_IN_DAY - 1).toFloat()
-
-        // 仅用于提供滚动范围：内容宽度 = 屏幕宽度 + 一天剩余分钟的刻度宽度
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .horizontalScroll(scrollState)
-        ) {
-            Spacer(
-                modifier = Modifier
-                    .width(contentWidth)
-                    .height(1.dp)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (!use24Hour) {
+            Text(
+                text = if (hour < 12) "上午" else "下午",
+                modifier = Modifier.padding(end = 6.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val scroll = scrollState.value.toFloat()
-            val baseline = size.height - 6.dp.toPx()
-            val labelBottom = 20.dp.toPx()
-
-            // 基线：让刻度有落脚的「尺面」
-            drawLine(
-                color = ruleColor.copy(alpha = 0.35f),
-                start = Offset(0f, baseline),
-                end = Offset(size.width, baseline),
-                strokeWidth = 1.dp.toPx()
-            )
-
-            val firstMinute = ((scroll - centerX) / minuteWidthPx).toInt() - 2
-            val lastMinute = ((scroll + centerX) / minuteWidthPx).toInt() + 2
-            for (minute in firstMinute..lastMinute) {
-                if (minute < 0 || minute >= MINUTES_IN_DAY) continue
-                val x = centerX + minute * minuteWidthPx - scroll
-                val minuteOfHour = minute % 60
-                val (tickHeight, alpha, stroke) = when {
-                    minuteOfHour == 0 -> Triple(22.dp, 0.9f, 1.5.dp)
-                    minuteOfHour % 15 == 0 -> Triple(13.dp, 0.65f, 1.dp)
-                    minuteOfHour % 5 == 0 -> Triple(8.dp, 0.45f, 1.dp)
-                    else -> Triple(4.dp, 0.28f, 1.dp)
-                }
-                drawLine(
-                    color = ruleColor.copy(alpha = alpha),
-                    start = Offset(x, baseline),
-                    end = Offset(x, baseline - tickHeight.toPx()),
-                    strokeWidth = stroke.toPx(),
-                    cap = StrokeCap.Round
-                )
-            }
-
-            // 现在：淡虚线 + 小圆点，作为选时参照
-            val nowX = centerX + nowMinute * minuteWidthPx - scroll
-            if (nowX in 4.dp.toPx()..(size.width - 4.dp.toPx())) {
-                drawLine(
-                    color = muted.copy(alpha = 0.5f),
-                    start = Offset(nowX, labelBottom),
-                    end = Offset(nowX, baseline),
-                    strokeWidth = 1.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(
-                        floatArrayOf(3.dp.toPx(), 3.dp.toPx())
-                    )
-                )
-                drawCircle(
-                    color = muted.copy(alpha = 0.6f),
-                    radius = 2.dp.toPx(),
-                    center = Offset(nowX, labelBottom)
-                )
-            }
-
-            // 选中光带 + 指针：整个时间带唯一的彩色元素
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        needleColor.copy(alpha = 0f),
-                        needleColor.copy(alpha = 0.10f),
-                        needleColor.copy(alpha = 0f)
-                    ),
-                    startX = centerX - 26.dp.toPx(),
-                    endX = centerX + 26.dp.toPx()
-                ),
-                topLeft = Offset(centerX - 26.dp.toPx(), 0f),
-                size = Size(52.dp.toPx(), size.height)
-            )
-            drawLine(
-                color = needleColor,
-                start = Offset(centerX, labelBottom),
-                end = Offset(centerX, baseline + 4.dp.toPx()),
-                strokeWidth = 2.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-            drawCircle(
-                color = needleColor,
-                radius = 3.dp.toPx(),
-                center = Offset(centerX, labelBottom)
-            )
-
-            // 两端渐隐，暗示刻度可以继续滑动
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(surfaceColor, surfaceColor.copy(alpha = 0f))
-                ),
-                size = Size(28.dp.toPx(), size.height)
-            )
-            drawRect(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(surfaceColor.copy(alpha = 0f), surfaceColor)
-                ),
-                topLeft = Offset(size.width - 28.dp.toPx(), 0f),
-                size = Size(28.dp.toPx(), size.height)
-            )
-        }
-
-        // 小时标签作为文本叠在刻度上方，保留字体排版而不在 Canvas 里画字。
-        // 滚动读数放在 offset 的布局 lambda 里，避免拖动时整块标签参与重组
-        for (hour in 0..24) {
-            Box(
-                modifier = Modifier
-                    .offset {
-                        val xCenter = centerX + hour * 60f * minuteWidthPx - scrollState.value
-                        IntOffset(
-                            (xCenter - labelWidthPx / 2f).roundToInt(),
-                            2.dp.roundToPx()
-                        )
-                    }
-                    .width(RULER_LABEL_WIDTH)
-            ) {
-                Text(
-                    text = if (hour == 24) "24" else String.format(Locale.US, "%02d", hour),
-                    modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = muted.copy(alpha = 0.8f),
-                    textAlign = TextAlign.Center,
-                    maxLines = 1
-                )
-            }
-        }
+        ReadoutSegment(
+            text = hourText,
+            selected = activeHand == ClockHand.HOUR,
+            contentDescription = "小时 $hourText，点击切换调节小时"
+        ) { onHandChange(ClockHand.HOUR) }
+        Text(
+            text = ":",
+            style = MaterialTheme.typography.displayMedium,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        ReadoutSegment(
+            text = minuteText,
+            selected = activeHand == ClockHand.MINUTE,
+            contentDescription = "分钟 $minuteText，点击切换调节分钟"
+        ) { onHandChange(ClockHand.MINUTE) }
     }
 }
 
 @Composable
-private fun QuickKey(
-    label: String,
-    modifier: Modifier = Modifier,
+private fun ReadoutSegment(
+    text: String,
+    selected: Boolean,
+    contentDescription: String,
     onClick: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
+    // 切换「时/分」时底色与字色淡入淡出，不再硬切
+    val animatedColor by animateColorAsState(
+        targetValue = if (selected) scheme.primary else scheme.onSurface,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "readoutColor"
+    )
+    val animatedBackground by animateColorAsState(
+        targetValue = if (selected) scheme.primary.copy(alpha = 0.12f) else Color.Transparent,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "readoutBackground"
+    )
     Box(
-        modifier = modifier
-            .height(36.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.Center
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(animatedBackground)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) { this.contentDescription = contentDescription }
+            .padding(horizontal = 6.dp, vertical = 2.dp)
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        // 读数像机械计数器一样换字：旧数字上滑淡出，新数字上滑淡入
+        AnimatedContent(
+            targetState = text,
+            transitionSpec = {
+                (
+                    slideInVertically(animationSpec = tween(durationMillis = 200)) { h -> h / 2 } +
+                        fadeIn(animationSpec = tween(durationMillis = 200))
+                    ) togetherWith (
+                    slideOutVertically(animationSpec = tween(durationMillis = 140)) { h -> -h / 2 } +
+                        fadeOut(animationSpec = tween(durationMillis = 140))
+                    ) using SizeTransform(clip = false)
+            },
+            label = "readoutText"
+        ) { value ->
+            Text(
+                text = value,
+                style = MaterialTheme.typography.displayMedium,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = (-1).sp,
+                color = animatedColor
+            )
+        }
     }
+}
+
+/** 「小时 / 分钟」分段开关：明确告诉用户当前拖动的指针 */
+@Composable
+private fun ClockHandToggle(
+    activeHand: ClockHand,
+    onHandChange: (ClockHand) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(percent = 50))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(3.dp)
+    ) {
+        HandToggleItem("小时", activeHand == ClockHand.HOUR) { onHandChange(ClockHand.HOUR) }
+        HandToggleItem("分钟", activeHand == ClockHand.MINUTE) { onHandChange(ClockHand.MINUTE) }
+    }
+}
+
+@Composable
+private fun HandToggleItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Text(
+        text = label,
+        modifier = Modifier
+            .clip(RoundedCornerShape(percent = 50))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
+            )
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 5.dp),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = if (selected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    )
+}
+
+/**
+ * 24 小时圆形表盘。
+ * 时针每 24 小时一圈、分针每 60 分钟一圈；按住表盘任意位置即把当前指针拖到手指角度，
+ * 无需先精确抓到细线，指针会实时吸附到整点/整分。
+ */
+@Composable
+private fun AnalogClock(
+    hour: Int,
+    minute: Int,
+    use24Hour: Boolean,
+    activeHand: ClockHand,
+    selectedLabel: String,
+    onHourChange: (Int) -> Unit,
+    onMinuteChange: (Int) -> Unit,
+    onHourPicked: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scheme = MaterialTheme.colorScheme
+    val textMeasurer = rememberTextMeasurer()
+    val dialColor = scheme.surfaceContainerHigh.copy(alpha = 0.55f)
+    val activeColor = scheme.primary
+    val inactiveColor = scheme.onSurfaceVariant.copy(alpha = 0.30f)
+    val tickColor = scheme.outline.copy(alpha = 0.45f)
+    val strongTickColor = scheme.outline.copy(alpha = 0.75f)
+
+    // 切盘时数字层「换焦」一次：旧盘淡出、新盘落定；首帧则是从无到有的淡入
+    val digitsAlpha = remember { Animatable(0f) }
+    var digitsFirstFrame by remember { mutableStateOf(true) }
+    LaunchedEffect(activeHand) {
+        if (digitsFirstFrame) {
+            digitsFirstFrame = false
+            digitsAlpha.animateTo(1f, tween(durationMillis = 360, easing = FastOutSlowInEasing))
+        } else {
+            digitsAlpha.animateTo(0.18f, tween(durationMillis = 90, easing = FastOutSlowInEasing))
+            digitsAlpha.animateTo(1f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
+        }
+    }
+    // 活动指针末端的呼吸光点，提示这里可以拖
+    val pulse = rememberInfiniteTransition(label = "handPulse")
+    val haloScale by pulse.animateFloat(
+        initialValue = 0.82f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "haloScale"
+    )
+    val haloAlpha by pulse.animateFloat(
+        initialValue = 0.06f,
+        targetValue = 0.20f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "haloAlpha"
+    )
+    // 圆弧平滑跟随指针，避免点按瞬间跳到新角度
+    val sweepTarget = if (activeHand == ClockHand.HOUR) {
+        if (use24Hour) (hour % 12) * DEGREES_PER_DIAL_HOUR else hour * DEGREES_PER_HOUR
+    } else {
+        minute * DEGREES_PER_MINUTE
+    }
+    val smoothSweep by animateFloatAsState(
+        targetValue = sweepTarget,
+        animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing),
+        label = "smoothSweep"
+    )
+
+    // 表盘数字不随拖动变化，预先排版，避免每帧重新测量
+    // 24 小时制：外圈 1–12、内圈 13–24；12 小时制沿用一天一圈的 24 点标注
+    val outerHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant) {
+        (1..12).map { h -> measureDialLabel(textMeasurer, h.toString(), scheme.onSurfaceVariant) }
+    }
+    val innerHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant) {
+        (13..24).map { h -> measureDialLabel(textMeasurer, h.toString(), scheme.onSurfaceVariant) }
+    }
+    val dayHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant) {
+        (0 until HOURS_IN_DAY step 2).map { h ->
+            measureDialLabel(
+                textMeasurer,
+                String.format(Locale.US, "%02d", h),
+                scheme.onSurfaceVariant
+            )
+        }
+    }
+    // 分钟盘以 5 分钟为刻度：00、05 …… 55 共 12 个数字
+    val minuteLayouts = remember(textMeasurer, scheme.onSurfaceVariant) {
+        (0 until 60 step 5).map { m ->
+            measureDialLabel(
+                textMeasurer,
+                String.format(Locale.US, "%02d", m),
+                scheme.onSurfaceVariant
+            )
+        }
+    }
+
+    Canvas(
+        modifier = modifier
+            .pointerInput(activeHand, use24Hour) {
+                // 触点离圆心太近时角度不稳定，忽略中心区域，避免误跳到 00:00
+                val deadZone = 12.dp.toPx()
+                // 24 小时制用半径区分内外圈：内圈 13–24，外圈 1–12
+                val ringSplit = minOf(size.width, size.height) / 2f * RING_SPLIT_RATIO
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val center = Offset(size.width / 2f, size.height / 2f)
+                    var hourTouched = false
+
+                    fun applyPosition(position: Offset) {
+                        val dx = position.x - center.x
+                        val dy = position.y - center.y
+                        val distanceSquared = dx * dx + dy * dy
+                        if (distanceSquared < deadZone * deadZone) return
+                        val angle = angleFromTop(position, size)
+                        if (activeHand == ClockHand.HOUR) {
+                            val slot = (angle / DEGREES_PER_DIAL_HOUR).roundToInt() % 12
+                            if (use24Hour) {
+                                onHourChange(
+                                    if (distanceSquared < ringSplit * ringSplit) {
+                                        // 内圈 13–24：slot 0 是正上方的 24 点，落库为 0 时
+                                        if (slot == 0) 0 else slot + 12
+                                    } else {
+                                        // 外圈 1–12：slot 0 是正上方的 12 点
+                                        if (slot == 0) 12 else slot
+                                    }
+                                )
+                            } else {
+                                // 12 小时制保持一天一圈：角度直接映射 0–23，跨圈即切换上午/下午
+                                onHourChange(
+                                    (angle / DEGREES_PER_HOUR).roundToInt() % HOURS_IN_DAY
+                                )
+                            }
+                            hourTouched = true
+                        } else {
+                            onMinuteChange((angle / DEGREES_PER_MINUTE).roundToInt() % 60)
+                        }
+                    }
+
+                    applyPosition(down.position)
+                    down.consume()
+
+                    var pointer = down
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        if (change.position != pointer.position) {
+                            applyPosition(change.position)
+                            change.consume()
+                        }
+                        pointer = change
+                    }
+
+                    // 小时选定即自动切到分钟盘，省掉手动再点一次「分钟」
+                    if (hourTouched) onHourPicked()
+                }
+            }
+            .clearAndSetSemantics {
+                contentDescription = "24 小时圆形表盘，当前选择 $selectedLabel，拖动指针校准"
+                customActions = listOf(
+                    CustomAccessibilityAction("小时加一") {
+                        onHourChange((hour + 1) % HOURS_IN_DAY)
+                        true
+                    },
+                    CustomAccessibilityAction("小时减一") {
+                        onHourChange((hour + HOURS_IN_DAY - 1) % HOURS_IN_DAY)
+                        true
+                    },
+                    CustomAccessibilityAction("分钟加一") {
+                        onMinuteChange((minute + 1) % 60)
+                        true
+                    },
+                    CustomAccessibilityAction("分钟减一") {
+                        onMinuteChange((minute + 59) % 60)
+                        true
+                    }
+                )
+            }
+    ) {
+        val radius = size.minDimension / 2f
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val dialRadius = radius - 1.dp.toPx()
+
+        fun pointAt(angleDegrees: Float, distance: Float): Offset {
+            val radians = Math.toRadians((angleDegrees - 90f).toDouble())
+            return Offset(
+                x = center.x + cos(radians).toFloat() * distance,
+                y = center.y + sin(radians).toFloat() * distance
+            )
+        }
+
+        // 表盘底与细外圈
+        drawCircle(color = dialColor, radius = dialRadius, center = center)
+        drawCircle(
+            color = tickColor,
+            radius = dialRadius,
+            center = center,
+            style = Stroke(width = 1.dp.toPx())
+        )
+
+        // 刻度：小时盘按整点、分钟盘按 5 分钟，两者都是每 30° 一格；3 的倍数加粗
+        val tickCount = if (activeHand == ClockHand.HOUR && !use24Hour) HOURS_IN_DAY else 12
+        val tickStepDegrees = if (activeHand == ClockHand.HOUR && !use24Hour) {
+            DEGREES_PER_HOUR
+        } else {
+            DEGREES_PER_MINUTE * 5f
+        }
+        for (i in 0 until tickCount) {
+            val angle = i * tickStepDegrees
+            val major = i % 3 == 0
+            val outer = dialRadius - 5.dp.toPx()
+            val inner = outer - (if (major) 11.dp else 6.dp).toPx()
+            drawLine(
+                color = if (major) strongTickColor else tickColor,
+                start = pointAt(angle, inner),
+                end = pointAt(angle, outer),
+                strokeWidth = if (major) 1.6.dp.toPx() else 1.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+        }
+
+        // 数字：24 小时制小时盘为双圈（外 1–12 / 内 13–24），分钟盘每 5 分钟一个
+        val outerLabelRadius = dialRadius * OUTER_LABEL_RATIO
+        val innerLabelRadius = dialRadius * INNER_LABEL_RATIO
+
+        fun drawLabel(
+            layout: TextLayoutResult,
+            angle: Float,
+            radius: Float,
+            alpha: Float = digitsAlpha.value
+        ) {
+            val position = pointAt(angle, radius)
+            drawText(
+                textLayoutResult = layout,
+                topLeft = Offset(
+                    x = position.x - layout.size.width / 2f,
+                    y = position.y - layout.size.height / 2f
+                ),
+                alpha = alpha
+            )
+        }
+
+        /** 当前选中的数字用主题色重绘，明确「指针停在哪一格」 */
+        fun drawSelected(hourLabel: Int, angle: Float, radius: Float, fontSize: TextUnit = 10.sp) {
+            val layout = measureDialLabel(textMeasurer, hourLabel.toString(), activeColor, fontSize)
+            drawLabel(layout, angle, radius)
+        }
+
+        when {
+            activeHand == ClockHand.MINUTE -> {
+                // 5 分钟一格：00、05 …… 55，每格 30°
+                minuteLayouts.forEachIndexed { index, layout ->
+                    drawLabel(layout, index * DEGREES_PER_MINUTE * 5f, outerLabelRadius)
+                }
+                // 高亮指针所在的那一格（最近的 5 分钟刻度）
+                val stickMinute = minute / 5 * 5
+                drawSelected(stickMinute, stickMinute * DEGREES_PER_MINUTE, outerLabelRadius)
+            }
+
+            use24Hour -> {
+                // 外圈 1–12：1 点在 30°、12 点在正上方 0°
+                outerHourLayouts.forEachIndexed { index, layout ->
+                    drawLabel(layout, (index + 1) % 12 * DEGREES_PER_DIAL_HOUR, outerLabelRadius)
+                }
+                // 内圈 13–24：13 点在 30°、24 点在正上方
+                innerHourLayouts.forEachIndexed { index, layout ->
+                    drawLabel(layout, (index + 1) % 12 * DEGREES_PER_DIAL_HOUR, innerLabelRadius)
+                }
+                // 高亮当前时针所在圈层的那一格
+                val dialHour = if (hour % 12 == 0) 12 else hour % 12
+                val angle = (dialHour % 12) * DEGREES_PER_DIAL_HOUR
+                if (hour in 1..12) {
+                    drawSelected(dialHour, angle, outerLabelRadius)
+                } else {
+                    drawSelected(if (hour == 0) 24 else hour, angle, innerLabelRadius)
+                }
+            }
+
+            else -> {
+                // 12 小时制沿用一天一圈：每 2 小时一个数字
+                dayHourLayouts.forEachIndexed { index, layout ->
+                    drawLabel(layout, index * 2 * DEGREES_PER_HOUR, dialRadius - 30.dp.toPx())
+                }
+            }
+        }
+
+        // 时针吸附到整点、分针吸附到整分，保证指针位置与拖拽角度 1:1，不因分钟数提前偏移
+        // 24 小时制双圈盘面的时针按 12 格走，否则会和外圈数字错位
+        val hourOnDialAngle = if (use24Hour) {
+            (hour % 12) * DEGREES_PER_DIAL_HOUR
+        } else {
+            hour * DEGREES_PER_HOUR
+        }
+        val minuteAngle = minute * DEGREES_PER_MINUTE
+
+        // 当前指针扫过的淡色圆弧：用 smoothSweep 平滑跟随，点按时不再瞬跳
+        drawArc(
+            color = activeColor.copy(alpha = 0.16f),
+            startAngle = -90f,
+            sweepAngle = smoothSweep,
+            useCenter = false,
+            topLeft = Offset(
+                center.x - dialRadius + 2.dp.toPx(),
+                center.y - dialRadius + 2.dp.toPx()
+            ),
+            size = Size(
+                dialRadius * 2 - 4.dp.toPx(),
+                dialRadius * 2 - 4.dp.toPx()
+            ),
+            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+        )
+
+        fun drawHand(angle: Float, lengthRatio: Float, width: Dp, color: Color, active: Boolean) {
+            val tip = pointAt(angle, dialRadius * lengthRatio)
+            drawLine(
+                color = color,
+                start = center,
+                end = tip,
+                strokeWidth = width.toPx(),
+                cap = StrokeCap.Round
+            )
+            if (active) {
+                // 呼吸光晕：像仪表指示灯，暗示「这根针可以拖」
+                drawCircle(
+                    color = color.copy(alpha = haloAlpha),
+                    radius = width.toPx() * 2.8f * haloScale,
+                    center = tip
+                )
+            }
+            // 活动指针末端加一个圆点，提示这里可以拖动
+            drawCircle(
+                color = color,
+                radius = (if (active) width * 0.9f else width / 2f).toPx(),
+                center = tip
+            )
+        }
+
+        // 时针长度随所选圈层变化：外圈 1–12 伸到外圈数字附近，内圈 13–24 只到内圈
+        val hourHandRatio = when {
+            !use24Hour -> HOUR_HAND_RATIO
+            hour in 1..12 -> OUTER_HOUR_HAND_RATIO
+            else -> INNER_HOUR_HAND_RATIO
+        }
+
+        // 非活动指针先画、活动指针压在上面；时针短、分针长，靠长短即可区分
+        when (activeHand) {
+            ClockHand.HOUR -> {
+                drawHand(minuteAngle, MINUTE_HAND_RATIO, 3.dp, inactiveColor, active = false)
+                drawHand(hourOnDialAngle, hourHandRatio, 7.dp, activeColor, active = true)
+            }
+            ClockHand.MINUTE -> {
+                drawHand(hourOnDialAngle, hourHandRatio, 3.dp, inactiveColor, active = false)
+                drawHand(minuteAngle, MINUTE_HAND_RATIO, 5.dp, activeColor, active = true)
+            }
+        }
+
+        // 中心轴
+        drawCircle(color = activeColor, radius = 7.dp.toPx(), center = center)
+        drawCircle(color = scheme.surface, radius = 3.dp.toPx(), center = center)
+    }
+}
+
+/** 表盘数字统一排版：等宽、10sp，保证内外圈与分钟盘视觉一致 */
+private fun measureDialLabel(
+    textMeasurer: TextMeasurer,
+    text: String,
+    color: Color,
+    fontSize: TextUnit = 10.sp
+): TextLayoutResult = textMeasurer.measure(
+    text = AnnotatedString(text),
+    style = TextStyle(
+        color = color,
+        fontSize = fontSize,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Medium
+    )
+)
+
+/** 以正上方为 0°、顺时针递增，把触点换算成表盘角度 */
+private fun angleFromTop(position: Offset, size: IntSize): Float {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val degrees = Math.toDegrees(
+        atan2((position.y - cy).toDouble(), (position.x - cx).toDouble())
+    ).toFloat()
+    return (degrees + 90f + 360f) % 360f
 }

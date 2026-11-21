@@ -14,6 +14,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.domain.reminder.ReminderType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -47,6 +48,8 @@ data class AppSettings(
     val timeFormat: String = TimeFormatMode.HOUR_24.value,
     val showOvertimeShade: Boolean = true,
     val defaultInputMode: String = "OCR",
+    /** 今日页「打卡时刻」在上班/加班两种动作都可用时默认选中的动作 */
+    val defaultPunchType: String = PunchType.WORK_START.name,
     val ocrAutoFill: Boolean = true,
     /** 确认保存后是否同时写入系统相册（备份永远不含照片） */
     val gallerySaveEnabled: Boolean = true,
@@ -77,6 +80,7 @@ class SettingsDataStore(private val context: Context) {
         val TIME_FORMAT = stringPreferencesKey("time_format")
         val OVERTIME_SHADE = booleanPreferencesKey("show_overtime_shade")
         val DEFAULT_INPUT = stringPreferencesKey("default_input_mode")
+        val DEFAULT_PUNCH_TYPE = stringPreferencesKey("default_punch_type")
         val OCR_AUTO_FILL = booleanPreferencesKey("ocr_auto_fill")
         val GALLERY_SAVE = booleanPreferencesKey("gallery_save_enabled")
         val STATUS_MAPPING = stringPreferencesKey("status_mapping")
@@ -98,6 +102,7 @@ class SettingsDataStore(private val context: Context) {
             timeFormat = prefs[Keys.TIME_FORMAT] ?: TimeFormatMode.HOUR_24.value,
             showOvertimeShade = prefs[Keys.OVERTIME_SHADE] ?: true,
             defaultInputMode = prefs[Keys.DEFAULT_INPUT] ?: "OCR",
+            defaultPunchType = prefs[Keys.DEFAULT_PUNCH_TYPE] ?: PunchType.WORK_START.name,
             ocrAutoFill = prefs[Keys.OCR_AUTO_FILL] ?: true,
             gallerySaveEnabled = prefs[Keys.GALLERY_SAVE] ?: true,
             statusMapping = prefs[Keys.STATUS_MAPPING] ?: "",
@@ -128,6 +133,12 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setDefaultInputMode(mode: String) =
         context.dataStore.edit { it[Keys.DEFAULT_INPUT] = mode }
+
+    /** 只接受上班/加班到两种起始动作，其余值一律回落到上班，避免脏数据写坏今日页默认值 */
+    suspend fun setDefaultPunchType(value: String) {
+        val safe = if (value == PunchType.OT_START.name) value else PunchType.WORK_START.name
+        context.dataStore.edit { it[Keys.DEFAULT_PUNCH_TYPE] = safe }
+    }
 
     suspend fun setGallerySaveEnabled(enabled: Boolean) =
         context.dataStore.edit { it[Keys.GALLERY_SAVE] = enabled }
