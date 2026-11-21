@@ -152,8 +152,10 @@ fun TimePickerDialog(
         }
     }
 
-    val selectedTime = LocalTime.of(hour, minute)
-    val selectedLabel = TimeFormatter.formatTime(selectedTime, use24Hour)
+    val selectedTime = remember(hour, minute) { LocalTime.of(hour, minute) }
+    val selectedLabel = remember(selectedTime, use24Hour) {
+        TimeFormatter.formatTime(selectedTime, use24Hour)
+    }
 
     // 弹层入场：轻微上浮 + 放大 + 淡入，一次性编排，不做循环
     val appear = remember { Animatable(0f) }
@@ -172,10 +174,12 @@ fun TimePickerDialog(
             // 弹层最高占屏幕 94%，内容超出时在弹层内滚动，避免顶部标题被裁掉
             val sheetMaxHeight = maxHeight * 0.94f
             // 表盘随屏幕高度收缩，保证确认按钮尽量留在首屏
+            // 在小屏或横屏时进一步减小表盘，为按钮预留空间
+            val availableHeight = maxHeight * 0.94f - 200.dp // 预留标题、读数、按钮等固定高度
             val dialSize = minOf(
                 CLOCK_DIAL_MAX_SIZE,
                 maxWidth - 40.dp,
-                maxHeight * 0.40f
+                availableHeight.coerceAtLeast(160.dp) // 最小 160dp
             )
 
             Surface(
