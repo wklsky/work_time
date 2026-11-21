@@ -57,6 +57,8 @@ class CameraViewModel(
         private set
 
     fun setPendingBitmap(bitmap: Bitmap) {
+        // 释放旧的 bitmap 避免内存泄漏
+        pendingBitmap?.recycle()
         pendingBitmap = bitmap
     }
 
@@ -75,14 +77,18 @@ class CameraViewModel(
                 } else {
                     com.worktime.pro.domain.ocr.StatusMapping.deserialize(mappingRaw)
                 }
-                val scaled = withContext(Dispatchers.Default) { downscale(bitmap) }
+                // 图像预处理与压缩
+                val processed = withContext(Dispatchers.Default) {
+                    val scaled = downscale(bitmap)
+                    preprocessForOCR(scaled)
+                }
                 val candidates = withContext(Dispatchers.Default) {
-                    val image = InputImage.fromBitmap(scaled, 0)
+                    val image = InputImage.fromBitmap(processed, 0)
                     val visionText = recognizer.process(image).await()
                     extractor.extract(visionText, statusMapping = mapping)
                 }
                 val path = withContext(Dispatchers.IO) {
-                    EvidenceStore.save(context, scaled, EVIDENCE_QUALITY)
+                    EvidenceStore.save(context, processed, EVIDENCE_QUALITY)
                 }
                 _confirmState.value = _confirmState.value.copy(
                     candidates = candidates,
@@ -99,8 +105,47 @@ class CameraViewModel(
         }
     }
 
+    /**
+     * 图像预处理：针对考勤机 LCD 蓝色背景屏幕优化
+     * - 转灰度提升文字对比度
+     * - 对比度增强使文字更清晰
+     */
+    private fun preprocessForOCR(source: Bitmap): Bitmap {
+        val width = source.width
+        val height = source.height
+        val pixels = IntArray(width * height)
+        source.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        // 转灰度并增强对比度
+        for (i in pixels.indices) {
+            val color = pixels[i]
+            val r = (color shr 16) and 0xFF
+            val g = (color shr 8) and 0xFF
+            val b = color and 0xFF
+
+            // 灰度转换（加权平均，考虑人眼对不同颜色的敏感度）
+            var gray = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
+
+            // 对比度增强：拉伸灰度范围
+            gray = ((gray - 128) * 1.5 + 128).toInt().coerceIn(0, 255)
+
+            pixels[i] = (0xFF shl 24) or (gray shl 16) or (gray shl 8) or gray
+        }
+
+        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+    }
+
     fun clearError() {
         _confirmState.value = _confirmState.value.copy(error = null)
+    }
+
+    /**
+     * 清空识别状态与待处理的 Bitmap，用于重新拍照/上传时重置流程
+     */
+    fun resetState() {
+        pendingBitmap?.recycle()
+        pendingBitmap = null
+        _confirmState.value = ConfirmState()
     }
 
     /**
@@ -152,6 +197,7 @@ class CameraViewModel(
                 }
             }
 
+            pendingBitmap?.recycle()
             pendingBitmap = null
             _confirmState.value = ConfirmState()
             onDone()
@@ -174,6 +220,7 @@ class CameraViewModel(
     override fun onCleared() {
         super.onCleared()
         recognizer.close()
+        pendingBitmap?.recycle()
         pendingBitmap = null
     }
 

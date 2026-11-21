@@ -26,12 +26,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -114,9 +116,11 @@ fun ConfirmScreen(
     }
 
     // 进入页面后自动识别暂存的照片；仅触发一次，避免重组时重复识别
+    var hasTriggeredRecognition by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         viewModel.pendingBitmap?.let { bitmap ->
-            if (viewModel.confirmState.value.candidates.isEmpty()) {
+            if (!hasTriggeredRecognition && viewModel.confirmState.value.candidates.isEmpty()) {
+                hasTriggeredRecognition = true
                 viewModel.recognize(bitmap, context)
             }
         }
@@ -187,12 +191,21 @@ fun ConfirmScreen(
 
         // 原图缩略图：相对路径经 EvidenceStore 解析，缺失时给出占位
         state.imagePath?.let { path ->
-            val evidence = EvidenceStore.resolve(context, path)
+            val evidence = remember(path) { EvidenceStore.resolve(context, path) }
             Card(modifier = Modifier.fillMaxWidth().height(160.dp)) {
                 if (evidence != null) {
                     Image(
-                        painter = rememberAsyncImagePainter(evidence),
+                        painter = rememberAsyncImagePainter(
+                            model = coil.request.ImageRequest.Builder(context)
+                                .data(evidence)
+                                .crossfade(true)
+                                .memoryCacheKey(path)
+                                .diskCacheKey(path)
+                                .size(coil.size.Size.ORIGINAL) // 使用原始尺寸避免重复缩放
+                                .build()
+                        ),
                         contentDescription = "考勤机照片",
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -297,6 +310,37 @@ fun ConfirmScreen(
         if (state.candidates.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
             Text("识别结果", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+            // 识别质量提示
+            val lowConfidenceCount = state.candidates.count { it.confidence == Confidence.LOW }
+            val mediumConfidenceCount = state.candidates.count { it.confidence == Confidence.MEDIUM }
+            if (lowConfidenceCount > 0 || mediumConfidenceCount > 1) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "识别置信度较低，建议重新拍摄或仔细核对",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+
             Text(
                 if (settings.ocrAutoFill) {
                     "已自动填入上方列表；可逐段修改或删除。"
@@ -327,7 +371,10 @@ fun ConfirmScreen(
         Spacer(Modifier.height(16.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = onRetake, modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = {
+                viewModel.resetState()
+                onRetake()
+            }, modifier = Modifier.weight(1f)) {
                 Text("重新拍摄")
             }
             Button(

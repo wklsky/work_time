@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -187,7 +188,14 @@ private fun CameraPreview(
         Text(
             "请将考勤机屏幕完整放入取景框",
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp),
-            color = androidx.compose.ui.graphics.Color.White
+            color = androidx.compose.ui.graphics.Color.White,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            "避免反光 · 保持稳定 · 确保文字清晰",
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 48.dp),
+            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.8f),
+            style = MaterialTheme.typography.bodySmall
         )
 
         // 取景框：引导用户把考勤机屏幕放入中央区域
