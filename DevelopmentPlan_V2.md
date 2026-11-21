@@ -33,6 +33,17 @@
 | F-7 | 五维度汇总 + 报表导出 | 本地查询，CSV/Excel/PDF |
 | F-8 | 数据备份与恢复 | 本地导出/导入，替代云同步 |
 
+实现期追加交付（V2.1 / V2.2，已全部完成）：
+
+| 编号 | 能力 | 说明 |
+|------|------|------|
+| F-9 | 一日多段打卡 | 同类型多次打卡按时间贪心配对成多段，今日页与日详情按段展示、逐条编辑 |
+| F-10 | 时间线校验 | 写入前校验上下班/加班重叠、段未闭合、结束早于开始，冲突拒绝并提示 |
+| F-11 | 今日台账 | 新增「今日」Tab：状态卡 + 24 小时时间带 + 打卡时刻存根 + 今日流水 |
+| F-12 | 累计工时提醒 | 阈值型系统通知，AlarmManager 调度，后台/开机/更新后仍生效，同日去重 |
+| F-13 | 通用校时器 + 外观体系 | 时间带取时组件全应用复用；10 套预设配色 + 自定义配色 + 字号缩放 + 黑白模式 |
+| F-14 | 习惯打卡与考勤机状态映射 | 自定义习惯打卡列表；考勤机状态文字到四类打卡类型的映射配置 |
+
 ## 1.3 总体周期
 
 ```
@@ -57,37 +68,47 @@
 | 相机 | CameraX | 1.3+ | 预览、拍照、图像分析 |
 | OCR | ML Kit Text Recognition (Chinese) | v2 | bundled 离线模型 |
 | 异步 | Coroutines + Flow | — | 所有耗时操作 |
-| 图片 | Coil | — | 凭证图加载 |
-| 图表 | Vico / Compose Charts | — | 统计柱状图、趋势图 |
-| 依赖注入 | Hilt（可选） | — | 轻量项目可省略 |
+| 图片 | Coil | 2.7 | 凭证图加载 |
+| 图表 | Compose Canvas 自绘 | — | **未引入 Vico**：汇总以列表+进度条+自绘柱状呈现，减少依赖与包体 |
+| 依赖注入 | 手写 `ViewModelFactory` | — | **未引入 Hilt**：依赖在 `MainActivity` 统一装配，项目规模无需注解处理器 |
+| 提醒 | AlarmManager + NotificationCompat | — | **未引入 WorkManager**：精确到分钟的阈值触发用 `setExactAndAllowWhileIdle` |
 
 ## 2.2 架构分层
 
 ```
 ┌─────────────────────────────────────────┐
-│  UI Layer (Compose)                      │
-│  HomeScreen / CameraScreen /             │
-│  ConfirmScreen / DayDetailScreen /       │
-│  SummaryScreen / SettingsScreen          │
+│  UI Layer (Compose, 实际包见 2.3)         │
+│  HomeScreen(月历) / TodayScreen(台账) /    │
+│  CameraScreen / ConfirmScreen /          │
+│  ManualEntryScreen / DayDetailScreen /   │
+│  SummaryScreen / HabitScreen /           │
+│  WorkRulesScreen / SettingsScreen /      │
+│  CustomThemeScreen / MineScreen          │
 ├─────────────────────────────────────────┤
 │  ViewModel Layer                         │
-│  HomeViewModel / OcrViewModel /          │
-│  DayDetailViewModel / SummaryViewModel   │
-│  （StateFlow 暴露 UI 状态）                │
+│  各页面 ViewModel（StateFlow 暴露 UI 状态） │
+│  依赖通过手写 ViewModelFactory 注入        │
 ├─────────────────────────────────────────┤
 │  Domain Layer                            │
-│  ├─ WorkTimeCalculator（工时引擎）         │
-│  ├─ OcrFieldExtractor（字段抽取）          │
-│  ├─ PunchEventRepository                 │
-│  └─ BackupManager                        │
+│  ├─ engine/  WorkTimeCalculator（编排）   │
+│  │           PunchPairing（多段配对）      │
+│  │           PunchTimelineValidator（校验）│
+│  ├─ ocr/     OcrFieldExtractor / Matcher │
+│  ├─ calculator/ 五维度汇总               │
+│  ├─ export/  Csv / Xlsx / Pdf 导出       │
+│  ├─ evidence/ 凭证存取与相册写入          │
+│  ├─ reminder/ 提醒规划/调度/通知/开机重排  │
+│  ├─ backup/  BackupManager               │
+│  └─ repository/ PunchEventRepository     │
 ├─────────────────────────────────────────┤
 │  Data Layer                              │
 │  ├─ Room Database (3 表 + DAO)           │
-│  ├─ DataStore (设置)                     │
-│  └─ FileStorage (凭证照片)                │
+│  ├─ DataStore (18 项设置)                │
+│  └─ EvidenceStorage (私有目录 + 相册)     │
 ├─────────────────────────────────────────┤
 │  Device Layer                            │
-│  CameraX | ML Kit | MediaStore           │
+│  CameraX | ML Kit | MediaStore |         │
+│  AlarmManager / Notification             │
 └─────────────────────────────────────────┘
 ```
 
@@ -95,37 +116,76 @@
 
 ```
 com.worktime.pro/
-├── MainActivity.kt
+├── MainActivity.kt          UI 骨架、导航状态、权限申请
+├── WorkTimeApplication.kt   全局容器，常驻 ReminderCoordinator
 ├── ui/
-│   ├── home/          首页月历
-│   ├── camera/        拍照
-│   ├── confirm/       识别确认页
-│   ├── detail/        日详情页
-│   ├── summary/       统计汇总
-│   ├── settings/      设置
-│   └── theme/         Material3 主题
+│   ├── ViewModelFactory.kt  手写 ViewModel 工厂
+│   ├── LocalProviders.kt    CompositionLocal（主题/设置注入）
+│   ├── today/          TodayScreen / TodayViewModel / DayTape（24h 时间带）
+│   ├── home/           首页月历 HomeScreen / HomeViewModel
+│   ├── camera/         拍照 CameraScreen + 识别确认 ConfirmScreen
+│   ├── manual/         手动录入 ManualEntryScreen / ManualViewModel
+│   ├── detail/         日详情 DayDetailScreen / DayDetailViewModel
+│   ├── summary/        统计汇总 SummaryScreen / SummaryViewModel
+│   ├── habit/          习惯打卡 HabitScreen / HabitViewModel
+│   ├── rules/          工作规则 WorkRulesScreen / WorkRulesViewModel
+│   ├── settings/       设置目录 SettingsScreen + 二级页 SettingsSubScreens +
+│   │                   共享组件 SettingsComponents / SettingsViewModel + BackupViewModel
+│   ├── mine/           「我的」入口聚合 MineScreen / MineViewModel
+│   ├── theme/          Theme.kt / CustomPalette.kt / CustomThemeScreen
+│   └── components/     TimePickerDialog（校时器）/ ColorPickerDialog / EvidenceViewer /
+│                       WindowAdaptive（窗口档位与内容限宽容器）
 ├── domain/
-│   ├── engine/        工时计算引擎（迁移）
-│   │   ├── WorkTimeCalculator.kt
-│   │   ├── OvertimeCalculator.kt
-│   │   ├── WorkdayClassifier.kt
-│   │   └── DateAttributionResolver.kt
-│   ├── ocr/           OCR 字段抽取
-│   │   ├── OcrFieldExtractor.kt
-│   │   └── PunchTypeMatcher.kt
-│   └── repository/
+│   ├── engine/         WorkTimeCalculator（编排）、PunchPairing（多段配对）、
+│   │                   PunchTimelineValidator（写入校验）、OvertimeCalculator、
+│   │                   WorkdayClassifier、DateAttributionResolver
+│   ├── ocr/            OcrFieldExtractor、StatusMapping（考勤机状态映射）
+│   ├── calculator/     SummaryCalculator（五维度汇总）
+│   ├── export/         ReportExporter、XlsxWriter、PdfReportWriter
+│   ├── evidence/       EvidenceStore（私有目录）、GalleryPublisher（写相册）
+│   ├── reminder/       ReminderPlanner / ReminderScheduler / ReminderReceiver /
+│   │                   ReminderNotification / ReminderCoordinator / ReminderBootReceiver / ReminderType
+│   ├── backup/         BackupManager
+│   ├── model/          Models / SummaryModels / DayTotals
+│   └── repository/     WorkTimeRepository
 ├── data/
-│   ├── db/            Room 实体 + DAO + Database
-│   ├── datastore/     设置存储
-│   └── file/          照片存储
-└── util/
-    ├── TimeFormatter.kt
-    └── Constants.kt
+│   ├── db/             Entities / Daos / Converters / SessionMappers / WorkTimeDatabase
+│   └── datastore/      SettingsDataStore / PunchHabit
+└── util/               TimeFormatter / Constants / ColorContrast / DateTicker
 ```
+
+> **导航骨架（`MainActivity`）**：窗口宽度 ≥600dp（平板、折叠展开、手机横屏）把三 Tab 收进左侧 `NavigationRail`，
+> 纵向空间还给内容；窄屏保持底部 `NavigationBar`。内层统一套 `AdaptiveContent`，所有路由单列内容限宽 640dp 居中，
+> 避免平板上正文行被拉到整屏宽。窗口档位由 `rememberAppWindowSize()` 依
+> `screenWidthDp` 判定（COMPACT <600 / MEDIUM 600–839 / EXPANDED ≥840），未引入 `window-size-class` 依赖。
 
 ---
 
 # 第三章 任务分解（WBS）
+
+### 完成状态总览（2026-11-20 复核）
+
+| 阶段 | 任务区间 | 状态 |
+|------|----------|------|
+| 一 基础架构 | K-01 ~ K-04 | 已完成 |
+| 二 工时引擎 | K-05 ~ K-09 | 已完成（单测扩展至 60 个用例，含多段与时间线校验） |
+| 三 OCR 识别 | K-10 ~ K-18 | 已完成 |
+| 四 首页与详情 | K-19 ~ K-26 | 已完成（另新增今日台账与多段展示） |
+| 五 汇总设置备份 | K-27 ~ K-32 | 已完成 |
+| 六 测试发布 | K-33 ~ K-37 | 已完成至「可发布 Debug APK」；Release 签名待补 |
+
+实现期追加、未在原 WBS 中的任务：
+
+| 任务号 | 任务 | 说明 |
+|--------|------|------|
+| A-01 | 一日多段打卡（写入口径 + 重算） | 追加式写入，按时间贪心配对 |
+| A-02 | 时间线校验器 + 单测 | `PunchTimelineValidator`，四个写入口统一调用 |
+| A-03 | 今日台账页 + DayTape 时间带 | 状态卡、时间带、打卡存根、今日流水 |
+| A-04 | 累计工时提醒（规划/调度/通知/重排） | 7 个文件，含开机与应用更新重排 |
+| A-05 | 通用校时器 TimePickerDialog | 替换 Material TimePicker |
+| A-06 | 外观体系（10 套预设 + 自定义 + 字号） | 含 WCAG 对比度提示 |
+| A-07 | 习惯打卡与考勤机状态映射 | 对应 PRD 落地增量 |
+| A-08 | 凭证写系统相册 GalleryPublisher | 备份仍不含照片 |
 
 ## 3.1 阶段一：基础架构（W1）
 
@@ -233,6 +293,9 @@ com.worktime.pro/
 | 五 | W7 | 设置 + 汇总 + 报表 + 备份 | M5：功能冻结 |
 | 六 | W8 | 真机测试 + 识别调优 + 打包 | M6：可发布 APK |
 
+> **实际执行**：六个里程碑均已达成，另追加「优化期」（多段打卡、时间线校验、今日台账、工时提醒、
+> 校时器、外观体系）并已验收。当前产物为 Debug APK，Release 签名配置未纳入本期范围。
+
 ---
 
 # 第五章 关键技术方案要点
@@ -272,9 +335,41 @@ val anchored = candidates.map { line ->
 
 ## 5.4 凭证与数据安全
 
-- 照片压缩至 ≤1MB，存于 `context.filesDir/evidence/`
-- 删除记录时联动删除对应照片
-- 导出备份时可选是否包含照片（含照片体积大）
+- 照片压缩后存于应用私有目录 `evidence/`，DB 只存路径
+- 确认保存时按设置另写一份到系统相册 `Pictures/工时助手`（`MediaStore`，无需写存储权限）
+- 删除记录时联动删除私有目录中的照片
+- **备份固定不含照片**：体积小、无隐私扩散，恢复后失效路径显示占位图
+
+## 5.5 一日多段配对与写入校验
+
+```
+写入链路：UI → WorkTimeRepository.addPunch / addPunches / updatePunch（writeMutex 串行化）
+        → PunchTimelineValidator.validate(既有事件 + 新事件)   // 拒绝则返回 Result.failure(中文提示)，不落库
+        → insert 追加
+        → PunchPairing.pair(当日全部开始卡, 结束卡)   // 贪心：开始卡 + 其后最近的结束卡
+        → deleteByDate(work_session) + 重算写回
+```
+
+- 校验规则：同类段未闭合不得再开同类段；上班段未闭合不得开加班段，反之亦然；结束必须晚于开始
+- 孤立结束卡（只有下班没有上班）不拒绝，作为旧数据/分步补录兼容，不参与配对
+- 同一分钟的结束与开始判定为新一段（`start >= end` 视为开放段）
+- 未闭合段不写表，仅内存参与「今日实时累计」与提醒计算
+
+## 5.6 工时提醒调度
+
+- `ReminderPlanner` 纯函数：输入今日事件 + 工时段 + 阈值，输出「下一次触发时刻」；若 `lastReminderKey` 已是当日该键则返回 null（同日去重）
+- `ReminderScheduler` 用 `AlarmManager.setAndAllowWhileIdle`（`RTC_WAKEUP`）排定 `PendingIntent`，失败仅记录不崩溃
+- `ReminderCoordinator` 挂在 Application 作用域，持续观察今日数据并在设置变更时重排——**不依赖页面存活**
+- `ReminderReceiver` 收到广播后直接发通知，并把 `日期:类型:阈值` 写入 `lastReminderKey` 完成去重标记
+- `ReminderBootReceiver` 处理 `BOOT_COMPLETED` 与 `MY_PACKAGE_REPLACED`，开机与覆盖安装后重排
+- 通知渠道 `IMPORTANCE_HIGH`；Android 13+ 缺少 `POST_NOTIFICATIONS` 时静默降级，不抛异常
+
+## 5.7 今日时间带渲染
+
+- 24 小时线性映射到画布宽度，`Canvas` 绘制刻度与段条，避免引入图表库
+- 三类图层：计划班次（虚线描边）、已结算段（实心，加班用加班色）、未闭合段（降透明度）
+- 当前时刻墨针用 `DateTicker` 分钟级刷新，页面不可见时停止刷新
+- 拖动指针即校时：松手回写分钟值，打卡成功后指针回到「现在」
 
 ---
 
@@ -287,7 +382,11 @@ val anchored = candidates.map { line ->
 | 跨天 + 午休计算边界复杂 | 中 | 工时错误 | 引擎单测先于 UI 完成，11 类场景全覆盖 |
 | ML Kit 模型增大 APK | 低 | 包体积 +10~20MB | 接受，换取完全离线 |
 | 拍照反光/模糊导致识别失败 | 中 | 用户体验差 | 取景框引导 + 运动模糊检测 + 重拍提示 |
-| 考勤机型号多、版式差异大 | 中 | 抽取规则不通用 | 抽取规则配置化，预留关键词自定义入口 |
+| 考勤机型号多、版式差异大 | 中 | 抽取规则不通用 | 抽取规则配置化，设置中提供**考勤机状态文字映射**；确认页强制人工核对 |
+| 国产 ROM 省电策略杀后台/限制精确闹钟 | 中 | 提醒不按时触发 | 用 `setAndAllowWhileIdle` 而非精确闹钟；开机与更新后重排；引导用户关闭电池优化 |
+| 一日多段数据打乱旧口径 | 中 | 工时统计错误 | 写入前统一时间线校验 + 60 个单测覆盖多段/边界/跨天；重算按天全量重来 |
+| 备份不含照片导致恢复后凭证缺失 | 低 | 详情页图片打不开 | 明确提示"备份不含照片"；相册另存一份；失效路径显示占位图 |
+| 自定义配色可读性差 | 低 | 文字看不清 | WCAG 对比度计算并给出提示，支持一键恢复默认配色 |
 
 ---
 
@@ -298,6 +397,10 @@ val anchored = candidates.map { line ->
 - 工时引擎单测覆盖率 ≥ 85%，11 类场景全部通过
 - OCR 抽取规则测试通过（真实考勤机样本）
 - 无 P0 / P1 缺陷
+
+**实际执行结果**：7 个单元测试类共 **60 个用例全部通过**（`gradlew :app:testDebugUnitTest`），覆盖工时引擎、
+多段配对、时间线校验、工时口径、OCR 抽取、汇总计算、习惯打卡；`assembleDebug` 编译零错误，
+仅保留 1 条历史 `menuAnchor` 弃用警告。
 
 ## 7.2 上线标准
 
@@ -314,18 +417,31 @@ val anchored = candidates.map { line ->
 
 对应 PRD_V2.md 第五章，逐项验收（此处从略，详见 PRD_V2.md）。
 
+验收补充（优化期增量，均已通过真机验证）：
+
+- 多段打卡：同日两段上下班正确配对，正常工时合计正确
+- 时间线校验：段未闭合、上班与加班交叉、结束早于开始三类冲突均被拒绝且有中文提示
+- 今日台账：时间带三层图层正确区分计划/已结算/进行中，墨针每分钟移动
+- 工时提醒：阈值达成后收到通知，同日不重复；关闭开关后取消排定；开机后仍可触发
+- 校时器：拖动校准精度到分钟，取消不改值，12/24 小时显示跟随设置
+- 外观：10 套预设深浅两版、自定义配色低对比度提示、字号 0.9/1.0/1.15 无截断
+- 备份：导出 JSON 不含照片，导入后数据一致且 `lastReminderKey` 被重置
+- 设置信息架构（V2.3）：目录页两分区 5 入口摘要正确；子页 / 三级页与系统返回键逐级回退；状态映射独立成页后 0–9 十行直接铺开
+- 多尺寸适配（V2.3）：360×640、320×568（系统字体 1.3x）、640×360 横屏、800×1280 平板四档逐页 `uiautomator dump` 无越界；≥600dp 出现左侧导航，内容按 640dp 限宽居中
+
 ---
 
 # 第八章 交付物清单
 
-| 类别 | 交付物 | 阶段 |
-|------|--------|------|
-| 文档 | PRD_V2.md、DevelopmentPlan_V2.md、DatabaseDesign_V2.md | W1 |
-| 设计 | Compose UI（首页/确认页/详情页） | W1 |
-| 代码 | Kotlin 单机 App 完整源码 | 全周期 |
-| 测试 | 引擎单测、OCR 抽取测试、真机测试报告 | W8 |
-| 成果 | 可安装 Android APK | W8 |
-| 归档 | V1.1 全部文档与源码保留 | — |
+| 类别 | 交付物 | 阶段 | 状态 |
+|------|--------|------|------|
+| 文档 | PRD_V2.md、DevelopmentPlan_V2.md、DatabaseDesign_V2.md、OptimizationPlan_V3.md、README.md | W1 / 优化期 | 已交付 |
+| 设计 | Compose UI（今日台账 / 月历 / 确认页 / 详情页 / 汇总 / 设置 / 外观） | W1 / 优化期 | 已交付 |
+| 代码 | Kotlin 单机 App 完整源码（`worktime-android/`，71 个 Kotlin 源文件） | 全周期 | 已交付 |
+| 测试 | 7 个单测类 / 60 个用例；OCR 抽取测试 | W8 | 已交付 |
+| 成果 | Debug APK：`app/build/outputs/apk/debug/app-debug.apk`（可直接安装） | W8 | 已交付 |
+| 待办 | Release 签名配置与正式包分发 | 后续 | 未开始 |
+| 归档 | V1.1 全部文档与源码保留 | — | 已保留 |
 
 ---
 

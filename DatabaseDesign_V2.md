@@ -4,11 +4,15 @@
 
 **项目名称：** WorkTime Pro
 
-**文档版本：** V2.0
+**文档版本：** V2.0（实现校准版，2026-11-20 复核）
 
 **编制日期：** 2026-11-20
 
 **上一版本：** DatabaseDesign.md V1.1（MySQL 云端版，保留归档）
+
+> **本次复核校准**：按 `Entities.kt` / `SettingsDataStore.kt` / `BackupManager.kt` 实际实现同步了
+> 列名命名约定、一日多段的写入校验规则、DataStore 全部 18 个键、备份 JSON 结构（驼峰 + 无照片）、
+> 索引与外键声明。设计意图与 V2.0 初版一致，差异仅在落地细节。
 
 ---
 
@@ -17,7 +21,7 @@
 | 变更项 | V1.1（旧） | V2.0（本版） |
 |--------|-----------|-------------|
 | 数据库 | MySQL 8.0（服务器） | **Room / SQLite（手机本地单文件）** |
-| 表数量 | 6 张 | **4 张**（去掉用户表、导出记录表） |
+| 表数量 | 6 张 | **3 张**（punch_event / work_session / work_rule，去掉用户表、导出记录表、设置表） |
 | 多用户 | `user_id` 隔离 | **单用户，去掉所有 user_id 字段** |
 | 打卡模型 | `attendance_record`（一条=一个工作段） | **`punch_event` + `work_session`（点段分离）** |
 | 缓存 | Redis 10+ 缓存键 | **删除**（本地查询足够快） |
@@ -59,6 +63,10 @@ work_session（工时段，计算结果）
 ---
 
 # 第二章 核心表设计
+
+> **实现命名约定（V2.0 现状）**：Room 实体直接使用**驼峰列名**（`workDate`、`punchType`、`punchTime`、
+> `sessionId`、`imagePath`…），DAO 查询亦按驼峰书写。本文档代码块为便于阅读沿用设计期的下划线命名，
+> 两者语义一一对应，对接实现时以驼峰为准。真实实体见 `data/db/Entities.kt`。
 
 ## 2.1 打卡事件表 `punch_event`
 
@@ -156,10 +164,16 @@ enum class Confidence(val label: String) {
 ```
 
 **业务规则：**
-- 同一 `work_date` 下每种 `punch_type` 理论上各一条，但允许一日多段（同类多条）
+- 同一 `work_date` 下每种 `punch_type` 允许**多条**（V2.1 起支持一日多段），不设唯一约束
 - `source=OCR` 时 `image_path` 与 `ocr_raw_text` 应有值
 - 删除 `punch_event` 时，若有关联 `work_session` 且该段仅剩此事件，则一并删除该段
 - 修改 `punch_event` 后触发对应日期的 `work_session` 重算
+- **写入前时间线校验**（应用层 `PunchTimelineValidator`，非数据库约束）：
+  - 上班段未闭合时不能再写上班卡；加班段未闭合时不能再写加班卡
+  - 上班段未闭合时不能写加班到；加班段未闭合时不能写上班卡
+  - 结束卡必须晚于对应开始卡；无开始卡的孤立结束卡按旧数据/分步补录兼容，不做拒绝
+  - 同一时刻的结束卡优先于开始卡，允许「上一段结束的同一分钟开始下一段」
+  - 校验失败时**不落库**，返回中文提示由 UI 展示
 
 ---
 
@@ -248,7 +262,9 @@ enum class SessionType(val label: String) {
 - 由 `punch_event` 聚合计算生成，是**派生数据**，修改事件后必须重算
 - `REGULAR` 段：`start_time`=上班，`end_time`=下班
 - `OVERTIME` 段：`start_time`=加班到，`end_time`=加班退
-- 一个 `work_date` 可有多个 `REGULAR` 段（一日多段工时）和一个 `OVERTIME` 段
+- 一日可有多段：多个 `REGULAR` 段与多个 `OVERTIME` 段；配对按时间贪心，先出现的开始卡与随后最近的结束卡成段
+- 未闭合的段（有开始卡无结束卡）不写入本表，只在内存中作为「进行中段」参与实时累计与提醒
+- 删除某一天的 `punch_event` 后，该天 `work_session` 全量删除再重算，不做增量修补
 - 汇总查询基于本表聚合，无需物化表
 
 ---
@@ -346,6 +362,11 @@ punch_event ──聚合计算──> work_session   事件变更触发对应日
 
 # 第三章 DAO 设计
 
+> 以下代码块为**设计期示意**（下划线列名）。实现见 `data/db/Daos.kt`，列名为驼峰，并在此基础上补充了：
+> `getByDateOnce` / `getByRange` / `getDatesInRange` / `observeDayPunchCounts` / `observeDayAggregates`
+> （日历与汇总一次查询聚合整月，避免 N+1）、`getAll` / `deleteAll` / `insertAll`（备份导出与恢复）。
+> 实体类名实际为 `PunchEventEntity` / `WorkSessionEntity` / `WorkRuleEntity`。
+
 ## 3.1 PunchEventDao
 
 ```kotlin
@@ -437,7 +458,7 @@ interface WorkRuleDao {
 
 ```kotlin
 @Database(
-    entities = [PunchEvent::class, WorkSession::class, WorkRule::class],
+    entities = [PunchEventEntity::class, WorkSessionEntity::class, WorkRuleEntity::class],
     version = 1,
     exportSchema = true
 )
@@ -448,10 +469,21 @@ abstract class WorkTimeDatabase : RoomDatabase() {
     abstract fun workRuleDao(): WorkRuleDao
 
     companion object {
-        const val DATABASE_NAME = "worktime.db"
+        @Volatile private var INSTANCE: WorkTimeDatabase? = null
+
+        // 文件名取自 Constants.DB_NAME（worktime.db），双检锁单例
+        fun get(context: Context): WorkTimeDatabase =
+            INSTANCE ?: synchronized(this) {
+                INSTANCE ?: Room.databaseBuilder(
+                    context.applicationContext, WorkTimeDatabase::class.java, Constants.DB_NAME
+                ).addCallback(DefaultRuleCallback).build().also { INSTANCE = it }
+            }
     }
 }
 ```
+
+> 实现要点：`exportSchema = true` 但 schema 目录未纳入版本库；`version = 1` 至今未发生迁移，
+> 因此未配置 `Migration`，也未开启 `fallbackToDestructiveMigration()`（破坏性降级会静默清库）。
 
 ## 4.2 TypeConverter
 
@@ -483,29 +515,55 @@ private val CALLBACK = object : RoomDatabase.Callback() {
 
 # 第五章 设置存储（DataStore，不入库）
 
-以下设置项不进 Room，改用 DataStore `Preferences` 存储：
+以下设置项不进 Room，改用 DataStore `Preferences` 存储（共 18 个键，实现见 `SettingsDataStore.kt`）：
 
 | Key | 类型 | 默认值 | 说明 |
 |-----|------|--------|------|
 | `calendar_display_mode` | String | `WORK_TIME` | **日历下方显示内容：WORK_TIME-上班时间 / OVERTIME-加班时间，全局统一** |
-| `time_format` | String | `SYSTEM` | `24H` / `12H` / `SYSTEM` |
+| `time_format` | String | `HOUR_24` | `HOUR_24` / `HOUR_12` / `SYSTEM` |
 | `show_overtime_shade` | Boolean | `true` | 加班色阶开关 |
 | `default_input_mode` | String | `OCR` | `OCR` / `MANUAL` |
+| `default_punch_type` | String | `WORK_START` | 今日页默认打卡动作：`WORK_START`（上班）/ `OT_START`（加班到）；其余值一律回落为上班 |
 | `ocr_auto_fill` | Boolean | `true` | OCR 自动填充开关 |
-| `backup_include_photos` | Boolean | `false` | 备份是否含照片 |
+| `gallery_save_enabled` | Boolean | `true` | 确认保存后把凭证写入系统相册（备份永不含照片） |
+| `status_mapping` | String | `""` | 考勤机状态文字映射，序列化字符串；空串用默认映射 |
+| `theme_mode` | String | `LIGHT` | `LIGHT` / `DARK` / `MONO`（黑白） |
+| `punch_habits` | String | `""` | 习惯打卡列表，序列化字符串 |
+| `custom_theme_enabled` | Boolean | `false` | 启用自定义配色（黑白模式不受影响） |
+| `custom_light_colors` | String | `""` | 浅色自定义配色，序列化 ARGB 列表；空串用预设 |
+| `custom_dark_colors` | String | `""` | 深色自定义配色，同上 |
+| `font_scale` | Float | `1.0` | 字号缩放：0.9 / 1.0 / 1.15 |
+| `reminder_enabled` | Boolean | `false` | 累计工时提醒总开关 |
+| `reminder_type` | String | `OVERTIME` | `OVERTIME` / `REGULAR` / `NET`（净投入） |
+| `reminder_minutes` | Int | `420` | 提醒阈值分钟数，30 分钟步进 |
+| `last_reminder_key` | String | `""` | 已提醒键 `日期+类型+阈值`，用于同日去重；恢复备份后清空 |
 
 ```kotlin
 data class AppSettings(
-    val calendarDisplayMode: String = "WORK_TIME",
-    val timeFormat: String = "SYSTEM",
+    val calendarDisplayMode: String = CalendarDisplayMode.WORK_TIME.value,
+    val timeFormat: String = TimeFormatMode.HOUR_24.value,
     val showOvertimeShade: Boolean = true,
     val defaultInputMode: String = "OCR",
+    val defaultPunchType: String = PunchType.WORK_START.name,
     val ocrAutoFill: Boolean = true,
-    val backupIncludePhotos: Boolean = false
+    val gallerySaveEnabled: Boolean = true,
+    val statusMapping: String = "",
+    val themeMode: String = ThemeMode.LIGHT.value,
+    val habits: String = "",
+    val customThemeEnabled: Boolean = false,
+    val customLightColors: String = "",
+    val customDarkColors: String = "",
+    val fontScale: Float = 1f,
+    val reminderEnabled: Boolean = false,
+    val reminderType: String = ReminderType.OVERTIME.value,
+    val reminderMinutes: Int = 420,
+    val lastReminderKey: String = ""
 )
 ```
 
-> 说明：`calendar_display_mode` 是本次新增的核心配置项，控制首页所有日期格子下方的显示内容，全局统一生效。
+> 说明：`calendar_display_mode` 控制首页所有日期格子下方的显示内容，全局统一生效；
+> `last_reminder_key` 属运行时状态，导入备份时会被重置，避免恢复后当天不再提醒。
+> 早期设计中的 `backup_include_photos` 已移除——备份固定不含照片。
 
 ---
 
@@ -516,24 +574,25 @@ data class AppSettings(
 ```json
 {
   "version": "2.0",
-  "export_time": 1737350400000,
-  "include_photos": false,
-  "work_rule": { ... },
-  "settings": { ... },
-  "punch_events": [ ... ],
-  "work_sessions": [ ... ],
-  "photos": []
+  "exportTime": 1737350400000,
+  "punchEvents": [ { "id": 1, "workDate": "2026-11-20", "punchType": "WORK_START", "punchTime": 1737350400000, "source": "OCR", "sessionId": 1, "imagePath": "evidence/xxx.jpg", "ocrRawText": "...", "confidence": "HIGH", "remark": null, "createTime": 1737350400000, "updateTime": 1737350400000 } ],
+  "workSessions": [ { "id": 1, "workDate": "2026-11-20", "sessionType": "REGULAR", "startTime": 1737350400000, "endTime": 1737382800000, "workMinutes": 480, "overtimeMinutes": 0, "restMinutes": 60, "crossDay": false, "formula": "...", "startEventId": 1, "endEventId": 2, "createTime": 0, "updateTime": 0 } ],
+  "workRules": [ { "id": 1, "ruleName": "默认规则", "startTime": "09:00", "endTime": "18:00", "restStart": "12:00", "restEnd": "13:00", "bufferMinutes": 30, "dayCutTime": "04:00", "workDays": [1,2,3,4,5], "isDefault": true, "updateTime": 0 } ],
+  "settings": { "calendarDisplayMode": "WORK_TIME", "timeFormat": "HOUR_24", "reminderEnabled": false, "reminderType": "OVERTIME", "reminderMinutes": 420, "...": "其余设置项同第五章" }
 }
 ```
+
+> 实际实现采用**驼峰键名**，且固定不含照片字段（`photos` 已移除）。`lastReminderKey` 不写入备份。
 
 ## 6.2 导入校验
 
 | 校验项 | 规则 |
 |--------|------|
-| 版本 | `version` 必须为 `2.0`，否则拒绝导入 |
-| 完整性 | `punch_events` 与 `work_sessions` 数组合法 |
-| 覆盖确认 | 导入前二次确认，提示"将覆盖当前全部数据" |
-| 照片 | `include_photos=true` 时恢复照片到私有目录并更新 `image_path` |
+| 版本 | `version` 必须与 `Constants.BACKUP_VERSION`（字符串 `"2.0"`）一致，否则拒绝导入并提示版本不兼容 |
+| 完整性 | `punchEvents` / `workSessions` / `workRules` 解析失败或为空时拒绝，避免空库覆盖 |
+| 覆盖确认 | 导入前二次确认，提示「将覆盖当前全部数据」 |
+| 照片 | 不备份照片；恢复后原 `imagePath` 可能失效，页面显示占位图，不影响工时计算 |
+| 提醒状态 | 恢复后重置 `lastReminderKey`，允许当天重新提醒，并重新排定闹钟 |
 
 ---
 
@@ -541,13 +600,19 @@ data class AppSettings(
 
 ## 7.1 索引清单
 
-| 表 | 索引 | 字段 | 用途 |
-|----|------|------|------|
-| punch_event | idx_date | work_date | 首页日历、日详情 |
-| punch_event | idx_date_type | work_date, punch_type | 时间配对、段计算 |
-| punch_event | idx_session | session_id | 段关联查询 |
-| work_session | idx_date | work_date | 首页日历、日详情 |
-| work_session | idx_date_type | work_date, session_type | 汇总查询 |
+Room 按 `Index(value = [...])` 生成默认索引名 `index_<表>_<列1>_<列2>`：
+
+| 表 | 字段 | 用途 |
+|----|------|------|
+| punch_event | workDate | 首页日历、日详情 |
+| punch_event | workDate, punchType | 时间配对、段计算 |
+| punch_event | sessionId | 段关联查询 |
+| work_session | workDate | 首页日历、日详情 |
+| work_session | workDate, sessionType | 汇总查询 |
+
+外键：`punch_event.sessionId → work_session.id`，`onDelete = SET_NULL`（删段不删卡）。
+
+> 列名为驼峰（`workDate` / `punchType` / `sessionType`），与第二章命名约定一致。
 
 ## 7.2 性能说明
 
