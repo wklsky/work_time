@@ -124,10 +124,14 @@ private val CLOCK_DIAL_MAX_SIZE = 284.dp
  * Dialog 在 edge-to-edge 窗口里 navigationBarsPadding 常拿不到导航栏 insets（退化为 0），
  * 仅靠内容 padding 会让按钮贴住手势条被遮挡或误触，这里用固定间距兜底把按钮整体上移。
  */
-private val CONFIRM_BUTTON_BOTTOM_INSET = 40.dp
+private val CONFIRM_BUTTON_BOTTOM_INSET = 56.dp
 
-/** 表盘之外的固定内容高度（标题、读数、开关、按钮及底部安全间距），用于按屏高收缩表盘 */
-private val NON_DIAL_CONTENT_HEIGHT = 220.dp
+/**
+ * 表盘之外的固定内容高度（标题、读数、提示、时/分开关、按钮、各段间距及底部安全间距）。
+ * 业务背景：该估值用于反推表盘可用高度，估值偏低会让表盘撑满弹层、把确认按钮挤进滚动区底部；
+ * 按实际固定块约 334dp 取 336dp，保证常见屏高下全部内容首屏可见且按钮不贴屏幕边缘。
+ */
+private val NON_DIAL_CONTENT_HEIGHT = 336.dp
 
 /** 当前正在调节的指针 */
 private enum class ClockHand { HOUR, MINUTE }
@@ -220,102 +224,110 @@ fun TimePickerDialog(
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                 color = MaterialTheme.colorScheme.surface
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp)
-                        .padding(top = 18.dp, bottom = CONFIRM_BUTTON_BOTTOM_INSET)
-                ) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "校时",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                letterSpacing = 3.sp
-                            )
-                            Spacer(Modifier.height(3.dp))
-                            Text(
-                                title,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                Icons.Filled.Close,
-                                contentDescription = "关闭",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(6.dp))
-
+                // 内容区可滚动、确认按钮固定在弹层底部：表盘撑高内容时按钮不会跟着滚出首屏，
+                // 底部安全间距把主操作整体上移，避开手势导航条
+                Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 20.dp)
+                            .padding(top = 18.dp)
                     ) {
-                        TimeReadout(
-                            dialHour = dialHour,
-                            minute = minute,
-                            isPM = isPM,
-                            activeHand = activeHand,
-                            onHandChange = { activeHand = it },
-                            onTogglePeriod = { isPM = !isPM }
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            // 表盘会随时/分自动切换，提示语跟着当前盘面走，减少用户试错
-                            subtitle ?: if (activeHand == ClockHand.HOUR) {
-                                "拖动指针选小时，点上午/下午切换，松手后自动切到分钟"
-                            } else {
-                                "拖动或点按分钟盘选择分钟"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Row(verticalAlignment = Alignment.Top) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "校时",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    letterSpacing = 3.sp
+                                )
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    title,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "关闭",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(6.dp))
+
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            TimeReadout(
+                                dialHour = dialHour,
+                                minute = minute,
+                                isPM = isPM,
+                                activeHand = activeHand,
+                                onHandChange = { activeHand = it },
+                                onTogglePeriod = { isPM = !isPM }
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                // 表盘会随时/分自动切换，提示语跟着当前盘面走，减少用户试错
+                                subtitle ?: if (activeHand == ClockHand.HOUR) {
+                                    "拖动指针选小时，点上午/下午切换，松手后自动切到分钟"
+                                } else {
+                                    "拖动或点按分钟盘选择分钟"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ClockHandToggle(
+                                activeHand = activeHand,
+                                onHandChange = { activeHand = it }
+                            )
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AnalogClock(
+                                dialHour = dialHour,
+                                minute = minute,
+                                activeHand = activeHand,
+                                dialStyle = dialStyle,
+                                selectedLabel = selectedLabel,
+                                onHourChange = { dialHour = it },
+                                onMinuteChange = { minute = it },
+                                // 小时选定后自动进入分钟盘，与系统闹钟的「先时后分」一致
+                                onHourPicked = { hourPickedTick++ },
+                                modifier = Modifier.size(dialSize)
+                            )
+                        }
+
+                        Spacer(Modifier.height(18.dp))
                     }
-
-                    Spacer(Modifier.height(10.dp))
-
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ClockHandToggle(
-                            activeHand = activeHand,
-                            onHandChange = { activeHand = it }
-                        )
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AnalogClock(
-                            dialHour = dialHour,
-                            minute = minute,
-                            activeHand = activeHand,
-                            dialStyle = dialStyle,
-                            selectedLabel = selectedLabel,
-                            onHourChange = { dialHour = it },
-                            onMinuteChange = { minute = it },
-                            // 小时选定后自动进入分钟盘，与系统闹钟的「先时后分」一致
-                            onHourPicked = { hourPickedTick++ },
-                            modifier = Modifier.size(dialSize)
-                        )
-                    }
-
-                    Spacer(Modifier.height(18.dp))
 
                     Button(
                         onClick = { onConfirm(selectedTime) },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp)
+                            .padding(bottom = CONFIRM_BUTTON_BOTTOM_INSET)
+                            .height(52.dp),
                         shape = MaterialTheme.shapes.medium
                     ) {
                         Text(
