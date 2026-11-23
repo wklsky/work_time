@@ -33,6 +33,7 @@ import com.worktime.pro.domain.update.UpdateUiState
  * @param currentVersion 本机版本号，用于展示版本对比
  * @param onDownload 用户点击「立即更新」
  * @param onInstall 用户点击「去设置」，授权后需再触发安装
+ * @param onOpenBrowserDownload 下载失败后跳转发布页，改用浏览器手动下载兜底
  * @param onDismiss 关闭弹窗（稍后再说 / 知道了）
  */
 @Composable
@@ -41,6 +42,7 @@ fun UpdateDialogHost(
     currentVersion: String,
     onDownload: () -> Unit,
     onInstall: () -> Unit,
+    onOpenBrowserDownload: () -> Unit,
     onDismiss: () -> Unit
 ) {
     when (state) {
@@ -125,7 +127,9 @@ fun UpdateDialogHost(
             onDismissRequest = onDismiss,
             title = { Text("更新未完成") },
             text = { Text(state.message) },
-            confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } }
+            // DownloadManager 失败多因直连 GitHub 不稳定，给浏览器手动下载兜底而不是让用户卡死
+            confirmButton = { TextButton(onClick = onOpenBrowserDownload) { Text("浏览器下载") } },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("知道了") } }
         )
     }
 }

@@ -104,7 +104,10 @@ class UpdateManager(
             while (isActive) {
                 val progress = UpdateInstaller.query(context, downloadId)
                 if (progress.failed) {
-                    _state.value = UpdateUiState.Failed("下载失败，请稍后重试")
+                    // reason 为空说明系统未给出可读原因，多为网络中断，提示用户改用浏览器下载兜底
+                    _state.value = UpdateUiState.Failed(
+                        progress.reason ?: "下载失败，请检查网络后重试，或改用浏览器下载"
+                    )
                     return@launch
                 }
                 if (progress.finished) {

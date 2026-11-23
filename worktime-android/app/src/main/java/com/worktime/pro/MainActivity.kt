@@ -194,6 +194,19 @@ class MainActivity : ComponentActivity() {
                         currentVersion = app.updateManager.currentVersionName,
                         onDownload = { app.updateManager.startDownload() },
                         onInstall = { app.updateManager.installPending() },
+                        onOpenBrowserDownload = {
+                            app.updateManager.dismiss()
+                            runCatching {
+                                startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse(
+                                            com.worktime.pro.domain.update.UpdateConfig.RELEASES_PAGE_URL
+                                        )
+                                    )
+                                )
+                            }
+                        },
                         onDismiss = { app.updateManager.dismiss() }
                     )
                 }

@@ -27,7 +27,8 @@ object UpdateInstaller {
     private const val APK_MIME = "application/vnd.android.package-archive"
     private val APK_DIR = Environment.DIRECTORY_DOWNLOADS
 
-    data class Progress(val percent: Int, val finished: Boolean, val failed: Boolean)
+    /** reason 为面向用户的具体失败原因；空表示系统未给出可读原因，由上层用通用文案兜底 */
+    data class Progress(val percent: Int, val finished: Boolean, val failed: Boolean, val reason: String? = null)
 
     private fun apkFileName(info: UpdateInfo): String = "worktime-${info.versionName}.apk"
 
@@ -64,10 +65,17 @@ object UpdateInstaller {
                 val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
                 val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                 val percent = if (total > 0) ((downloaded.coerceAtLeast(0) * 100) / total).toInt() else 0
+                val failed = status == DownloadManager.STATUS_FAILED
+                // 失败时必须带出 COLUMN_REASON，笼统的"下载失败"无法帮助用户区分网络问题与发布配置问题
+                val reason = if (failed) {
+                    cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                        .let(::describeFailureReason)
+                } else null
                 Progress(
                     percent = percent.coerceIn(0, 100),
                     finished = status == DownloadManager.STATUS_SUCCESSFUL,
-                    failed = status == DownloadManager.STATUS_FAILED
+                    failed = failed,
+                    reason = reason
                 )
             }
         }.getOrElse { Progress(0, finished = false, failed = true) }
@@ -75,6 +83,19 @@ object UpdateInstaller {
 
     fun apkFile(context: Context, info: UpdateInfo): File? =
         context.getExternalFilesDir(APK_DIR)?.resolve(apkFileName(info))
+
+    /**
+     * 把 DownloadManager 的错误码转成用户可读的原因。
+     * 只翻译能给出明确行动建议的码，其余返回空串交由上层通用文案兜底，避免误导。
+     */
+    private fun describeFailureReason(reason: Int): String? = when (reason) {
+        DownloadManager.ERROR_INSUFFICIENT_SPACE -> "手机存储空间不足，请清理后重试"
+        DownloadManager.ERROR_UNHANDLED_HTTP_CODE,
+        DownloadManager.ERROR_HTTP_DATA_ERROR -> "下载链接不可用（HTTP 错误），请确认发布页资产上传正常，或改用浏览器下载"
+        DownloadManager.ERROR_FILE_ERROR -> "安装包写入失败，请重试"
+        DownloadManager.ERROR_DEVICE_NOT_FOUND -> "存储设备不可用，请检查手机存储状态"
+        else -> null
+    }
 
     /** Android 8.0 起安装 APK 需要「安装未知应用」授权，未授权会直接被系统拦掉 */
     fun canInstallPackages(context: Context): Boolean =
