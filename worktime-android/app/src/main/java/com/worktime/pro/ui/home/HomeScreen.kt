@@ -35,7 +35,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -94,7 +93,7 @@ fun HomeScreen(
     val attendanceDays = monthDays.count { it.recordCount > 0 }
     val incompleteDays = monthDays.filter { it.isIncomplete }
 
-    // 加垂直滚动：月历 6 行 + 底部操作栏可能超出屏幕，保证拍照/手动入口可达
+    // 加垂直滚动：月历 6 行 + 底部操作栏可能超出屏幕，保证手动录入入口可达
     Column(
         modifier = Modifier.fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -290,13 +289,11 @@ fun HomeScreen(
         }
 
         // 底部操作栏：手动录入主操作
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.Center
+        Button(
+            onClick = onOpenManual,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Button(onClick = onOpenManual, modifier = Modifier.fillMaxWidth(0.8f)) {
-                Text("手动录入")
-            }
+            Text("手动录入")
         }
     }
 
