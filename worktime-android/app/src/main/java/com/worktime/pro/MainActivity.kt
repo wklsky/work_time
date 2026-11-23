@@ -46,7 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.graphicsLayer
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -272,8 +272,7 @@ private fun AppNavHost(
             HomeScreen(
                 factory = factory,
                 onOpenDay = { date -> navController.navigate("day/$date") },
-                onOpenManual = { navController.navigate("manual") },
-                onOpenHabits = { navController.navigate("habits") }
+                onOpenManual = { navController.navigate("manual") }
             )
         }
         composable("today") {
@@ -316,7 +315,8 @@ private fun AppNavHost(
             DayDetailScreen(
                 dateKey = date,
                 factory = factory,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenHabits = { navController.navigate("habits") }
             )
         }
         composable("manual") {

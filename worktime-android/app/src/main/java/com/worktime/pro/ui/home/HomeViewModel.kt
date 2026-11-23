@@ -8,15 +8,9 @@ package com.worktime.pro.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.worktime.pro.data.datastore.CalendarDisplayMode
-import com.worktime.pro.data.datastore.PunchHabit
 import com.worktime.pro.data.datastore.SettingsDataStore
 import com.worktime.pro.data.db.DayAggregate
 import com.worktime.pro.data.db.DayPunchCounts
-import com.worktime.pro.domain.model.PunchSource
-import com.worktime.pro.domain.model.PunchType
-import com.worktime.pro.domain.engine.PunchMoment
-import com.worktime.pro.domain.engine.PunchTimelineValidator
-import com.worktime.pro.domain.repository.PunchInput
 import com.worktime.pro.domain.repository.WorkTimeRepository
 import com.worktime.pro.util.DateTicker
 import com.worktime.pro.util.TimeFormatter
@@ -27,14 +21,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
 import java.time.YearMonth
 
 data class MonthDay(
@@ -72,21 +63,10 @@ class HomeViewModel(
         .map { it.showOvertimeShade }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    /** 习惯打卡列表：首页展示，供一键应用固定班次时间 */
-    val habits: StateFlow<List<PunchHabit>> = settings.settings
-        .map { PunchHabit.deserialize(it.habits) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /** 今日打卡条数：跨零点自动切到新一天 */
-    val todayEventCount: StateFlow<Int> = DateTicker.dates()
-        .flatMapLatest { date -> repository.observeEvents(TimeFormatter.formatDateKey(date)) }
-        .map { it.size }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    /** 当前月视图的 42 天区间聚合：一次查询覆盖整屏，格子只读内存数据 */
+    /** 当前月视图的 5/6 周区间聚合：一次查询覆盖整屏，格子只读内存数据 */
     private val monthData: Flow<MonthData> = _displayedMonth.flatMapLatest { month ->
         val start = gridStart(month)
-        val end = start.plusDays(41)
+        val end = start.plusDays((monthGridDays(month) - 1).toLong())
         val startKey = TimeFormatter.formatDateKey(start)
         val endKey = TimeFormatter.formatDateKey(end)
         combine(
@@ -129,50 +109,9 @@ class HomeViewModel(
         }
     }
 
-    /**
-     * 应用习惯到今天：把习惯里的固定时间批量写入。
-     * overwrite=true 时先清空当天记录再写入，用于用户确认替换的场景；来源记为 MANUAL。
-     */
-    fun applyHabit(habit: PunchHabit, overwrite: Boolean, onResult: (String?) -> Unit) {
-        viewModelScope.launch {
-            // 以点击瞬间的日期为准，避免跨零点写入昨天
-            val today = LocalDate.now()
-            val todayKey = TimeFormatter.formatDateKey(today)
-            val inputs = habit.times.mapNotNull { (typeName, timeValue) ->
-                runCatching {
-                    PunchInput(
-                        workDate = todayKey,
-                        punchType = PunchType.valueOf(typeName),
-                        punchTime = LocalDateTime.of(today, LocalTime.parse(timeValue)),
-                        source = PunchSource.MANUAL,
-                        remark = "习惯：${habit.name}"
-                    )
-                }.getOrNull()
-            }
-            // 先校验习惯本身，避免覆盖时先删数据再失败
-            val moments = inputs.map {
-                PunchMoment(
-                    type = it.punchType,
-                    time = it.punchTime.atZone(java.time.ZoneId.systemDefault())
-                        .toInstant().toEpochMilli()
-                )
-            }
-            val validation = PunchTimelineValidator.validate(moments)
-            if (validation != null) {
-                onResult(validation)
-                return@launch
-            }
-            if (overwrite) {
-                repository.observeEvents(todayKey).first().forEach { repository.deletePunch(it) }
-            }
-            val result = repository.addPunches(inputs)
-            onResult(result.exceptionOrNull()?.message)
-        }
-    }
-
     private fun buildMonthDays(data: MonthData, today: LocalDate): List<MonthDay> {
         val start = gridStart(data.month)
-        return (0 until 42).map { i ->
+        return (0 until monthGridDays(data.month)).map { i ->
             val date = start.plusDays(i.toLong())
             val key = TimeFormatter.formatDateKey(date)
             val aggregate = data.aggregates[key]
@@ -201,6 +140,15 @@ class HomeViewModel(
         val firstDay = month.atDay(1)
         // 月历从周一开始，前置补齐上月末日期
         return firstDay.minusDays((firstDay.dayOfWeek.value - 1).toLong())
+    }
+
+    /**
+     * 月视图所需格子数：从周一起补齐到整周，只渲染 5 行或 6 行。
+     * 业务背景：固定 6 行时，5 行月份底部会多出一整排空白格子，挤压日历下方的图例与操作区。
+     */
+    private fun monthGridDays(month: YearMonth): Int {
+        val leading = month.atDay(1).dayOfWeek.value - 1
+        return ((leading + month.lengthOfMonth() + 6) / 7) * 7
     }
 
     fun dateKey(date: LocalDate): String = TimeFormatter.formatDateKey(date)
