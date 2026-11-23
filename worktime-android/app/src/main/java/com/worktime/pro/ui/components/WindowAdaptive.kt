@@ -15,7 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -48,13 +48,13 @@ fun rememberAppWindowSize(): AppWindowSize {
 /**
  * 当前应用窗口宽度（dp）。
  * 手机分屏时 screenWidthDp 仍是整屏宽，会把半个屏误判成大屏；
- * 改用 LocalWindowInfo.containerSize（Compose 内部取自 WindowManager 窗口 metrics），
- * 取不到（为 0）时回落到 screenWidthDp 兜底。
+ * 改用 LocalView 的实测宽度（取自 Activity 内容视图的布局尺寸，分屏/自由窗口下即真实可用宽），
+ * 取不到（为 0，首帧布局前）时回落到 screenWidthDp 兜底。
  */
 @Composable
 @ReadOnlyComposable
 private fun currentWindowWidthDp(): Int {
-    val windowWidthPx = LocalWindowInfo.current.containerSize.width
+    val windowWidthPx = LocalView.current.width.toFloat()
     if (windowWidthPx > 0f) {
         val density = LocalDensity.current
         return with(density) { windowWidthPx.toDp().value.roundToInt() }
