@@ -14,6 +14,7 @@ import com.worktime.pro.domain.model.DailyMinutes
 import com.worktime.pro.domain.model.SummaryRange
 import com.worktime.pro.domain.model.SummaryResult
 import com.worktime.pro.domain.repository.WorkTimeRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,6 +40,9 @@ class SummaryViewModel(
 
     private val _state = MutableStateFlow(SummaryUiState())
     val state: StateFlow<SummaryUiState> = _state.asStateFlow()
+
+    /** 当前进行中的汇总请求，切换维度时取消旧请求，避免旧结果晚到覆盖新结果 */
+    private var recomputeJob: Job? = null
 
     init {
         recompute()
@@ -80,7 +84,8 @@ class SummaryViewModel(
 
     /** 加载区间工时段并聚合为汇总结果 */
     fun recompute() {
-        viewModelScope.launch {
+        recomputeJob?.cancel()
+        recomputeJob = viewModelScope.launch {
             val current = _state.value
             _state.value = current.copy(isLoading = true)
             try {
@@ -98,7 +103,7 @@ class SummaryViewModel(
                     )
                 }
                 val result = calculator.summarize(dailyMap, resolved.start, resolved.end, current.range)
-                _state.value = _state.value.copy(
+                _state.value = current.copy(
                     result = result,
                     rangeTruncated = resolved.truncated,
                     isLoading = false,
@@ -106,7 +111,7 @@ class SummaryViewModel(
                 )
             } catch (e: Exception) {
                 // 汇总失败不能让页面停留在 loading 态，错误态与“区间截断”分开表达
-                _state.value = _state.value.copy(
+                _state.value = current.copy(
                     result = null,
                     isLoading = false,
                     rangeTruncated = false,

@@ -9,9 +9,12 @@ import android.content.Context
 import android.text.format.DateFormat
 import com.worktime.pro.data.datastore.TimeFormatMode
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -78,4 +81,22 @@ object TimeFormatter {
             else -> "${hours}小时${mins}分"
         }
     }
+
+    // ---- 时间戳与本地时间/日期的转换，统一时区口径，避免各页面重复拼接 ----
+
+    /** 毫秒时间戳 → 本地日期时间（系统时区） */
+    fun millisToLocalDateTime(millis: Long): LocalDateTime =
+        Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDateTime()
+
+    /** 毫秒时间戳 → 本地时间（系统时区） */
+    fun millisToLocalTime(millis: Long): LocalTime =
+        Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalTime()
+
+    /** 本地日期 → UTC 毫秒（M3 DatePicker 用 UTC 0 点作为选中值） */
+    fun localDateToUtcMillis(date: LocalDate): Long =
+        date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+    /** UTC 毫秒 → 本地日期（M3 DatePicker 返回的是 UTC 0 点） */
+    fun utcMillisToLocalDate(millis: Long): LocalDate =
+        Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
 }

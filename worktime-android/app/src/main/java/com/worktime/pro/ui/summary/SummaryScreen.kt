@@ -33,8 +33,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -44,7 +42,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -70,14 +67,13 @@ import com.worktime.pro.domain.export.ReportExporter
 import com.worktime.pro.domain.model.SummaryRange
 import com.worktime.pro.ui.LocalRepository
 import com.worktime.pro.ui.ViewModelFactory
+import com.worktime.pro.ui.components.SelectDateDialog
 import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -280,35 +276,21 @@ fun SummaryScreen(
     }
 
     editingRangeField?.let { field ->
-        val initialDate = if (field == RangeField.START) rangeStart else rangeEnd
-        val pickerState = rememberDatePickerState(
-            initialSelectedDateMillis =
-                initialDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-        )
-        DatePickerDialog(
-            onDismissRequest = { editingRangeField = null },
-            confirmButton = {
-                TextButton(onClick = {
-                    pickerState.selectedDateMillis?.let { millis ->
-                        val picked = millisToDate(millis)
-                        // 起止互锁：选了更晚的开始日就同步结束日，反之亦然，避免出现倒置区间
-                        if (field == RangeField.START) {
-                            rangeStart = picked
-                            if (rangeEnd < picked) rangeEnd = picked
-                        } else {
-                            rangeEnd = picked
-                            if (rangeStart > picked) rangeStart = picked
-                        }
-                    }
-                    editingRangeField = null
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { editingRangeField = null }) { Text("取消") }
+        SelectDateDialog(
+            initialDate = if (field == RangeField.START) rangeStart else rangeEnd,
+            onDismiss = { editingRangeField = null },
+            onConfirm = { picked ->
+                // 起止互锁：选了更晚的开始日就同步结束日，反之亦然，避免出现倒置区间
+                if (field == RangeField.START) {
+                    rangeStart = picked
+                    if (rangeEnd < picked) rangeEnd = picked
+                } else {
+                    rangeEnd = picked
+                    if (rangeStart > picked) rangeStart = picked
+                }
+                editingRangeField = null
             }
-        ) {
-            DatePicker(state = pickerState)
-        }
+        )
     }
 }
 
@@ -513,10 +495,6 @@ private fun exportReport(
         }
     }
 }
-
-/** M3 DatePicker 使用 UTC 毫秒，这里按 UTC 还原日期避免时区偏移 */
-private fun millisToDate(millis: Long): LocalDate =
-    Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
 
 @Composable
 private fun StatTile(
