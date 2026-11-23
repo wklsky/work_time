@@ -18,8 +18,10 @@ import com.worktime.pro.util.DateTicker
 import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -102,9 +104,39 @@ class TodayViewModel(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodayState())
 
+    /**
+     * 待撤销的删除：删除后立即落库，但保留快照供 Snackbar「撤销」在超时前恢复。
+     * 数据一致性与撤销安全性都交给「立即删除 + 撤销重写」，避免「延迟落库」在页面退出后漏删。
+     */
+    private val _deletedForUndo = MutableStateFlow<PunchEventEntity?>(null)
+    val deletedForUndo: StateFlow<PunchEventEntity?> = _deletedForUndo.asStateFlow()
+
     fun deleteEvent(event: PunchEventEntity) {
-        viewModelScope.launch { repository.deletePunch(event) }
+        viewModelScope.launch {
+            repository.deletePunch(event)
+            _deletedForUndo.value = event
+        }
     }
+
+    /** 撤销删除：把快照重写成一条新打卡（校验失败时静默保留已删状态） */
+    fun undoDelete() {
+        val event = _deletedForUndo.value ?: return
+        _deletedForUndo.value = null
+        viewModelScope.launch { runCatching { repository.addPunch(event.toPunchInput()) } }
+    }
+
+    /** 撤销窗口超时后清除快照，删除正式生效 */
+    fun commitDelete() {
+        _deletedForUndo.value = null
+    }
+
+    private fun PunchEventEntity.toPunchInput(): PunchInput = PunchInput(
+        workDate = workDate,
+        punchType = PunchType.fromName(punchType) ?: PunchType.WORK_START,
+        punchTime = TimeFormatter.millisToLocalDateTime(punchTime),
+        source = PunchSource.fromName(source) ?: PunchSource.MANUAL,
+        remark = remark
+    )
 
     /**
      * 快速打卡：以用户选定的类型和自定义时间写入当天记录。
