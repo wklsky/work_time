@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -54,6 +55,7 @@ import com.worktime.pro.data.db.toDayTotals
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
+import com.worktime.pro.ui.components.EmptyState
 import com.worktime.pro.ui.components.TimePickerDialog
 import com.worktime.pro.ui.sourceLabel
 import com.worktime.pro.ui.typeLabel
@@ -110,10 +112,12 @@ fun DayDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (state.events.isEmpty()) {
-                    Text(
-                        "当日无打卡记录，可在下方补录",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    EmptyState(
+                        icon = Icons.Filled.History,
+                        title = "当日无打卡记录",
+                        description = "可在下方补录一段。",
+                        iconSize = 48.dp,
+                        glyphSize = 22.dp
                     )
                 } else {
                     state.events.forEach { event ->

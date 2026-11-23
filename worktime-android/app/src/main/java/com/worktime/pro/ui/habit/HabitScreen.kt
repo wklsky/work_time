@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -54,6 +55,7 @@ import com.worktime.pro.data.datastore.PunchHabit
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
+import com.worktime.pro.ui.components.EmptyState
 import com.worktime.pro.ui.components.TimePickerDialog
 import com.worktime.pro.util.TimeFormatter
 import java.time.LocalTime
@@ -105,7 +107,13 @@ fun HabitScreen(
 
             Spacer(Modifier.height(16.dp))
             if (habits.isEmpty()) {
-                Text("暂无习惯，点击上方按钮新增。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                EmptyState(
+                    icon = Icons.Filled.Schedule,
+                    title = "暂无习惯",
+                    description = "点击上方「新增习惯」保存一组固定打卡时间。",
+                    iconSize = 48.dp,
+                    glyphSize = 22.dp
+                )
             } else {
                 habits.forEach { habit ->
                     HabitCard(

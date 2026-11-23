@@ -29,10 +29,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -67,7 +67,9 @@ import com.worktime.pro.domain.export.ReportExporter
 import com.worktime.pro.domain.model.SummaryRange
 import com.worktime.pro.ui.LocalRepository
 import com.worktime.pro.ui.ViewModelFactory
+import com.worktime.pro.ui.components.EmptyState
 import com.worktime.pro.ui.components.SelectDateDialog
+import com.worktime.pro.ui.motion.Skeleton
 import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -160,11 +162,27 @@ fun SummaryScreen(
         }
 
         if (state.isLoading) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.Center
+            // 骨架屏：与 KPI 卡 + 图表同构，避免「转圈 → 整屏跳变」
+            Column(
+                modifier = Modifier.padding(top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                CircularProgressIndicator()
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Skeleton(modifier = Modifier.weight(1f).height(56.dp))
+                            Skeleton(modifier = Modifier.weight(1f).height(56.dp))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Skeleton(modifier = Modifier.weight(1f).height(56.dp))
+                            Skeleton(modifier = Modifier.weight(1f).height(56.dp))
+                        }
+                    }
+                }
+                Skeleton(modifier = Modifier.fillMaxWidth().height(180.dp))
             }
         }
 
@@ -525,10 +543,11 @@ private fun WorkChart(data: List<Pair<Int, Int>>) {
     val maxValue = (display.maxOfOrNull { it.first + it.second } ?: 1).coerceAtLeast(1)
     Column {
         if (display.isEmpty()) {
-            Text(
-                "当前区间暂无数据",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            EmptyState(
+                icon = Icons.Filled.BarChart,
+                title = "当前区间暂无数据",
+                iconSize = 48.dp,
+                glyphSize = 22.dp
             )
         } else {
             Row(
