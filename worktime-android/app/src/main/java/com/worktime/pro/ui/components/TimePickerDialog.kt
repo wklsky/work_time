@@ -119,6 +119,16 @@ private const val MINUTE_HAND_RATIO = 0.90f
 /** 表盘最大边长：再大就会挤压读数与确认按钮 */
 private val CLOCK_DIAL_MAX_SIZE = 284.dp
 
+/**
+ * 确认按钮底部安全间距。
+ * Dialog 在 edge-to-edge 窗口里 navigationBarsPadding 常拿不到导航栏 insets（退化为 0），
+ * 仅靠内容 padding 会让按钮贴住手势条被遮挡或误触，这里用固定间距兜底把按钮整体上移。
+ */
+private val CONFIRM_BUTTON_BOTTOM_INSET = 40.dp
+
+/** 表盘之外的固定内容高度（标题、读数、开关、按钮及底部安全间距），用于按屏高收缩表盘 */
+private val NON_DIAL_CONTENT_HEIGHT = 220.dp
+
 /** 当前正在调节的指针 */
 private enum class ClockHand { HOUR, MINUTE }
 
@@ -187,7 +197,7 @@ fun TimePickerDialog(
             val sheetMaxHeight = maxHeight * 0.94f
             // 表盘随屏幕高度收缩，保证确认按钮尽量留在首屏
             // 在小屏或横屏时进一步减小表盘，为按钮预留空间
-            val availableHeight = maxHeight * 0.94f - 200.dp // 预留标题、读数、按钮等固定高度
+            val availableHeight = maxHeight * 0.94f - NON_DIAL_CONTENT_HEIGHT
             val dialSize = minOf(
                 CLOCK_DIAL_MAX_SIZE,
                 maxWidth - 40.dp,
@@ -216,7 +226,7 @@ fun TimePickerDialog(
                         .navigationBarsPadding()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 20.dp)
-                        .padding(top = 18.dp, bottom = 20.dp)
+                        .padding(top = 18.dp, bottom = CONFIRM_BUTTON_BOTTOM_INSET)
                 ) {
                     Row(verticalAlignment = Alignment.Top) {
                         Column(modifier = Modifier.weight(1f)) {
