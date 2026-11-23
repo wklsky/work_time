@@ -262,7 +262,6 @@ fun WorkRulesScreen(
         TimePickerDialog(
             title = title,
             initialTime = initial,
-            use24Hour = use24Hour,
             onDismiss = { picking = null },
             onConfirm = { time ->
                 when (field) {

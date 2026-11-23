@@ -269,7 +269,6 @@ private fun HabitEditor(
             title = "打卡时刻",
             subtitle = "${type.label} · 保存后可在今日页一键写入",
             initialTime = times[type] ?: LocalTime.of(9, 0),
-            use24Hour = use24Hour,
             onDismiss = { pickingType = null },
             onConfirm = { picked ->
                 times[type] = picked

@@ -1,7 +1,7 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/main/java/com/worktime/pro/ui/components/TimePickerDialog.kt
- * @Description: 通用时间选择弹窗「校时」：24 小时制双圈表盘（外 1–12 / 内 13–24）+ 可拖动时针/分针
+ * @Description: 通用时间选择弹窗「校时」：12 小时制单圈表盘 + 上午/下午切换 + 可拖动时针/分针
  *               + 大号等宽读数，选完小时自动进入分钟盘；统一今日页/手动录入/习惯打卡/工作规则的选时体验。
  */
 package com.worktime.pro.ui.components
@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -103,25 +104,17 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private const val HOURS_IN_DAY = 24
-private const val DEGREES_PER_HOUR = 360f / HOURS_IN_DAY
 private const val DEGREES_PER_MINUTE = 360f / 60f
 
-/** 一圈 12 个落点（24 小时制内外圈共用），每格 30° */
+/** 一圈 12 个落点，每格 30° */
 private const val DEGREES_PER_DIAL_HOUR = 360f / 12f
 
-/** 内外圈数字半径（相对表盘半径），以及区分内外圈的触点分界 */
+/** 小时数字半径（相对表盘半径） */
 private const val OUTER_LABEL_RATIO = 0.86f
-private const val INNER_LABEL_RATIO = 0.60f
-private const val RING_SPLIT_RATIO = 0.73f
 
 /** 指针长度：时针短、分针长，与真实钟表一致 */
 private const val HOUR_HAND_RATIO = 0.56f
 private const val MINUTE_HAND_RATIO = 0.90f
-
-/** 24 小时制双圈：时针长度随圈层变化，指向外圈（1–12）时更长、内圈（13–24）时更短 */
-private const val OUTER_HOUR_HAND_RATIO = 0.76f
-private const val INNER_HOUR_HAND_RATIO = 0.52f
 
 /** 表盘最大边长：再大就会挤压读数与确认按钮 */
 private val CLOCK_DIAL_MAX_SIZE = 284.dp
@@ -139,13 +132,15 @@ private enum class ClockHand { HOUR, MINUTE }
 fun TimePickerDialog(
     title: String,
     initialTime: LocalTime,
-    use24Hour: Boolean,
     onDismiss: () -> Unit,
     onConfirm: (LocalTime) -> Unit,
     subtitle: String? = null
 ) {
-    var hour by remember { mutableIntStateOf(initialTime.hour) }
+    // 12 小时制：小时存 1–12，配合上午/下午还原 24 小时
+    val initialDialHour = ((initialTime.hour + 11) % 12) + 1
+    var dialHour by remember { mutableIntStateOf(initialDialHour) }
     var minute by remember { mutableIntStateOf(initialTime.minute) }
+    var isPM by remember { mutableStateOf(initialTime.hour >= 12) }
     var activeHand by remember { mutableStateOf(ClockHand.HOUR) }
     // 抬手后延迟切盘：切换会重建 pointerInput，若立刻切，本次点击的抬起事件会被分钟盘当作新的按下
     var hourPickedTick by remember { mutableIntStateOf(0) }
@@ -162,9 +157,16 @@ fun TimePickerDialog(
         ClockDialStyle.fromValue(settings.clockDialStyle)
     }
 
-    val selectedTime = remember(hour, minute) { LocalTime.of(hour, minute) }
-    val selectedLabel = remember(selectedTime, use24Hour) {
-        TimeFormatter.formatTime(selectedTime, use24Hour)
+    val selectedTime = remember(dialHour, isPM, minute) {
+        val hour = if (isPM) {
+            if (dialHour == 12) 12 else dialHour + 12
+        } else {
+            if (dialHour == 12) 0 else dialHour
+        }
+        LocalTime.of(hour, minute)
+    }
+    val selectedLabel = remember(selectedTime) {
+        TimeFormatter.formatTime(selectedTime, use24Hour = false)
     }
 
     // 弹层入场：轻微上浮 + 放大 + 淡入，一次性编排，不做循环
@@ -247,21 +249,18 @@ fun TimePickerDialog(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         TimeReadout(
-                            hour = hour,
+                            dialHour = dialHour,
                             minute = minute,
-                            use24Hour = use24Hour,
+                            isPM = isPM,
                             activeHand = activeHand,
-                            onHandChange = { activeHand = it }
+                            onHandChange = { activeHand = it },
+                            onTogglePeriod = { isPM = !isPM }
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
                             // 表盘会随时/分自动切换，提示语跟着当前盘面走，减少用户试错
                             subtitle ?: if (activeHand == ClockHand.HOUR) {
-                                if (use24Hour) {
-                                    "外圈 1–12 点、内圈 13–24 点，松手后自动切换到分钟"
-                                } else {
-                                    "拖动指针选小时，松手后自动切换到分钟"
-                                }
+                                "拖动指针选小时，点上午/下午切换，松手后自动切到分钟"
                             } else {
                                 "拖动或点按分钟盘选择分钟"
                             },
@@ -289,13 +288,12 @@ fun TimePickerDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         AnalogClock(
-                            hour = hour,
+                            dialHour = dialHour,
                             minute = minute,
-                            use24Hour = use24Hour,
                             activeHand = activeHand,
                             dialStyle = dialStyle,
                             selectedLabel = selectedLabel,
-                            onHourChange = { hour = it },
+                            onHourChange = { dialHour = it },
                             onMinuteChange = { minute = it },
                             // 小时选定后自动进入分钟盘，与系统闹钟的「先时后分」一致
                             onHourPicked = { hourPickedTick++ },
@@ -323,37 +321,27 @@ fun TimePickerDialog(
 }
 
 /**
- * 大号读数：时/分两段可点按切换当前指针，当前调节段用主题色高亮。
- * 12 小时制下在小时前显示上午/下午，拖动跨过 12 点会实时切换。
+ * 大号读数：上午/下午切换 + 时/分两段可点按切换当前指针，当前调节段用主题色高亮。
  */
 @Composable
 private fun TimeReadout(
-    hour: Int,
+    dialHour: Int,
     minute: Int,
-    use24Hour: Boolean,
+    isPM: Boolean,
     activeHand: ClockHand,
-    onHandChange: (ClockHand) -> Unit
+    onHandChange: (ClockHand) -> Unit,
+    onTogglePeriod: () -> Unit
 ) {
-    val hourText = if (use24Hour) {
-        String.format(Locale.US, "%02d", hour)
-    } else {
-        ((hour + 11) % 12 + 1).toString()
-    }
+    val hourText = dialHour.toString()
     val minuteText = String.format(Locale.US, "%02d", minute)
 
     Row(verticalAlignment = Alignment.CenterVertically) {
-        if (!use24Hour) {
-            Text(
-                text = if (hour < 12) "上午" else "下午",
-                modifier = Modifier.padding(end = 6.dp),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        PeriodToggle(isPM = isPM, onToggle = onTogglePeriod)
+        Spacer(Modifier.width(10.dp))
         ReadoutSegment(
             text = hourText,
             selected = activeHand == ClockHand.HOUR,
-            contentDescription = "小时 $hourText，点击切换调节小时"
+            contentDescription = "${if (isPM) "下午" else "上午"} $hourText 点，点击切换调节小时"
         ) { onHandChange(ClockHand.HOUR) }
         Text(
             text = ":",
@@ -368,6 +356,39 @@ private fun TimeReadout(
             contentDescription = "分钟 $minuteText，点击切换调节分钟"
         ) { onHandChange(ClockHand.MINUTE) }
     }
+}
+
+/** 上午/下午切换：两段小药丸，点击在 AM/PM 间切换 */
+@Composable
+private fun PeriodToggle(isPM: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(2.dp)
+    ) {
+        PeriodToggleItem("上午", selected = !isPM) { if (isPM) onToggle() }
+        PeriodToggleItem("下午", selected = isPM) { if (!isPM) onToggle() }
+    }
+}
+
+@Composable
+private fun PeriodToggleItem(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        text = label,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = if (selected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    )
 }
 
 @Composable
@@ -466,15 +487,14 @@ private fun HandToggleItem(
 }
 
 /**
- * 24 小时圆形表盘。
- * 时针每 24 小时一圈、分针每 60 分钟一圈；按住表盘任意位置即把当前指针拖到手指角度，
+ * 12 小时圆形表盘。
+ * 时针每 12 小时一圈、分针每 60 分钟一圈；按住表盘任意位置即把当前指针拖到手指角度，
  * 无需先精确抓到细线，指针会实时吸附到整点/整分。
  */
 @Composable
 private fun AnalogClock(
-    hour: Int,
+    dialHour: Int,
     minute: Int,
-    use24Hour: Boolean,
     activeHand: ClockHand,
     dialStyle: ClockDialStyle,
     selectedLabel: String,
@@ -525,7 +545,7 @@ private fun AnalogClock(
     )
     // 圆弧平滑跟随指针，避免点按瞬间跳到新角度
     val sweepTarget = if (activeHand == ClockHand.HOUR) {
-        if (use24Hour) (hour % 12) * DEGREES_PER_DIAL_HOUR else hour * DEGREES_PER_HOUR
+        (dialHour % 12) * DEGREES_PER_DIAL_HOUR
     } else {
         minute * DEGREES_PER_MINUTE
     }
@@ -535,49 +555,28 @@ private fun AnalogClock(
         label = "smoothSweep"
     )
 
-    // 表盘数字不随拖动变化，预先排版，避免每帧重新测量
-    // 24 小时制：外圈 1–12、内圈 13–24；12 小时制沿用一天一圈的 24 点标注
-    val outerHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant, dialStyle) {
+    // 表盘数字不随拖动变化，预先排版，避免每帧重新测量；12 小时制单圈 1–12
+    val hourLayouts = remember(textMeasurer, scheme.onSurfaceVariant, dialStyle) {
         (1..12).map { h ->
             measureDialLabel(textMeasurer, dialStyle.hourText(h), scheme.onSurfaceVariant)
         }
     }
-    val innerHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant, dialStyle) {
-        (13..24).map { h ->
-            measureDialLabel(textMeasurer, dialStyle.hourText(h), scheme.onSurfaceVariant)
-        }
-    }
-    val dayHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant, dialStyle) {
-        (0 until HOURS_IN_DAY step 2).map { h ->
+    // 分钟盘以 5 分钟为刻度：00、05 …… 55 共 12 个数字，始终用阿拉伯数字
+    val minuteLayouts = remember(textMeasurer, scheme.onSurfaceVariant) {
+        (0 until 60 step 5).map { m ->
             measureDialLabel(
                 textMeasurer,
-                dialStyle.hourText(h, pad = true),
+                String.format(Locale.US, "%02d", m),
                 scheme.onSurfaceVariant
             )
-        }
-    }
-    // 分钟盘以 5 分钟为刻度：00、05 …… 55 共 12 个数字；极简样式下不绘制分钟数字
-    val minuteLayouts = remember(textMeasurer, scheme.onSurfaceVariant, dialStyle) {
-        if (dialStyle == ClockDialStyle.MINIMAL) {
-            emptyList()
-        } else {
-            (0 until 60 step 5).map { m ->
-                measureDialLabel(
-                    textMeasurer,
-                    String.format(Locale.US, "%02d", m),
-                    scheme.onSurfaceVariant
-                )
-            }
         }
     }
 
     Canvas(
         modifier = modifier
-            .pointerInput(activeHand, use24Hour) {
-                // 触点离圆心太近时角度不稳定，忽略中心区域，避免误跳到 00:00
+            .pointerInput(activeHand) {
+                // 触点离圆心太近时角度不稳定，忽略中心区域，避免误跳
                 val deadZone = 12.dp.toPx()
-                // 24 小时制用半径区分内外圈：内圈 13–24，外圈 1–12
-                val ringSplit = minOf(size.width, size.height) / 2f * RING_SPLIT_RATIO
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val center = Offset(size.width / 2f, size.height / 2f)
@@ -590,23 +589,9 @@ private fun AnalogClock(
                         if (distanceSquared < deadZone * deadZone) return
                         val angle = angleFromTop(position, size)
                         if (activeHand == ClockHand.HOUR) {
+                            // 12 个落点：正上方是 12 点
                             val slot = (angle / DEGREES_PER_DIAL_HOUR).roundToInt() % 12
-                            if (use24Hour) {
-                                onHourChange(
-                                    if (distanceSquared < ringSplit * ringSplit) {
-                                        // 内圈 13–24：slot 0 是正上方的 24 点，落库为 0 时
-                                        if (slot == 0) 0 else slot + 12
-                                    } else {
-                                        // 外圈 1–12：slot 0 是正上方的 12 点
-                                        if (slot == 0) 12 else slot
-                                    }
-                                )
-                            } else {
-                                // 12 小时制保持一天一圈：角度直接映射 0–23，跨圈即切换上午/下午
-                                onHourChange(
-                                    (angle / DEGREES_PER_HOUR).roundToInt() % HOURS_IN_DAY
-                                )
-                            }
+                            onHourChange(if (slot == 0) 12 else slot)
                             hourTouched = true
                         } else {
                             onMinuteChange((angle / DEGREES_PER_MINUTE).roundToInt() % 60)
@@ -633,14 +618,14 @@ private fun AnalogClock(
                 }
             }
             .clearAndSetSemantics {
-                contentDescription = "24 小时圆形表盘，当前选择 $selectedLabel，拖动指针校准"
+                contentDescription = "12 小时圆形表盘，当前选择 $selectedLabel，拖动指针校准"
                 customActions = listOf(
                     CustomAccessibilityAction("小时加一") {
-                        onHourChange((hour + 1) % HOURS_IN_DAY)
+                        onHourChange(if (dialHour == 12) 1 else dialHour + 1)
                         true
                     },
                     CustomAccessibilityAction("小时减一") {
-                        onHourChange((hour + HOURS_IN_DAY - 1) % HOURS_IN_DAY)
+                        onHourChange(if (dialHour == 1) 12 else dialHour - 1)
                         true
                     },
                     CustomAccessibilityAction("分钟加一") {
@@ -675,30 +660,43 @@ private fun AnalogClock(
             style = Stroke(width = 1.dp.toPx())
         )
 
-        // 刻度：小时盘按整点、分钟盘按 5 分钟，两者都是每 30° 一格；3 的倍数加粗
-        val tickCount = if (activeHand == ClockHand.HOUR && !use24Hour) HOURS_IN_DAY else 12
-        val tickStepDegrees = if (activeHand == ClockHand.HOUR && !use24Hour) {
-            DEGREES_PER_HOUR
-        } else {
-            DEGREES_PER_MINUTE * 5f
-        }
-        for (i in 0 until tickCount) {
-            val angle = i * tickStepDegrees
-            val major = i % 3 == 0
-            val outer = dialRadius - 5.dp.toPx()
-            val inner = outer - (if (major) 11.dp else 6.dp).toPx()
-            drawLine(
-                color = if (major) strongTickColor else tickColor,
-                start = pointAt(angle, inner),
-                end = pointAt(angle, outer),
-                strokeWidth = if (major) 1.6.dp.toPx() else 1.dp.toPx(),
-                cap = StrokeCap.Round
-            )
+        // 当前选中刻度的索引（条丁样式用来高亮对应刻度）
+        val selectedIndex = when (activeHand) {
+            ClockHand.HOUR -> dialHour % 12
+            ClockHand.MINUTE -> minute / 5
         }
 
-        // 数字：24 小时制小时盘为双圈（外 1–12 / 内 13–24），分钟盘每 5 分钟一个
+        // 刻度：12 个落点，每 30° 一格；3 的倍数加粗。条丁样式画实体条，数字样式画细刻度
+        for (i in 0 until 12) {
+            val angle = i * DEGREES_PER_DIAL_HOUR
+            val major = i % 3 == 0
+            val selected = i == selectedIndex
+            if (dialStyle == ClockDialStyle.INDEX) {
+                // 实体条丁：3/6/9/12 加长加粗
+                val outer = dialRadius - 6.dp.toPx()
+                val inner = outer - (if (major) 20.dp else 12.dp).toPx()
+                drawLine(
+                    color = if (selected) activeColor else if (major) strongTickColor else tickColor,
+                    start = pointAt(angle, inner),
+                    end = pointAt(angle, outer),
+                    strokeWidth = (if (major) 5.dp else 3.dp).toPx(),
+                    cap = StrokeCap.Round
+                )
+            } else {
+                val outer = dialRadius - 5.dp.toPx()
+                val inner = outer - (if (major) 11.dp else 6.dp).toPx()
+                drawLine(
+                    color = if (major) strongTickColor else tickColor,
+                    start = pointAt(angle, inner),
+                    end = pointAt(angle, outer),
+                    strokeWidth = if (major) 1.6.dp.toPx() else 1.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
+        // 数字：数字/罗马样式绘制 1–12；条丁样式不绘制数字
         val outerLabelRadius = dialRadius * OUTER_LABEL_RATIO
-        val innerLabelRadius = dialRadius * INNER_LABEL_RATIO
 
         fun drawLabel(
             layout: TextLayoutResult,
@@ -717,67 +715,45 @@ private fun AnalogClock(
             )
         }
 
-        /** 当前选中的数字用主题色重绘，明确「指针停在哪一格」；空串表示不绘制（极简样式） */
+        /** 当前选中的数字用主题色重绘，明确「指针停在哪一格」 */
         fun drawSelected(text: String, angle: Float, radius: Float, fontSize: TextUnit = 10.sp) {
-            if (text.isEmpty()) return
             val layout = measureDialLabel(textMeasurer, text, activeColor, fontSize)
             drawLabel(layout, angle, radius)
         }
 
-        when {
-            activeHand == ClockHand.MINUTE -> {
-                // 5 分钟一格：00、05 …… 55，每格 30°
-                minuteLayouts.forEachIndexed { index, layout ->
-                    drawLabel(layout, index * DEGREES_PER_MINUTE * 5f, outerLabelRadius)
-                }
-                // 高亮指针所在的那一格（最近的 5 分钟刻度）；分钟数字始终用阿拉伯数字
-                val stickMinute = minute / 5 * 5
-                val stickText = if (dialStyle == ClockDialStyle.MINIMAL) {
-                    ""
-                } else {
-                    String.format(Locale.US, "%02d", stickMinute)
-                }
-                drawSelected(stickText, stickMinute * DEGREES_PER_MINUTE, outerLabelRadius)
-            }
-
-            use24Hour -> {
-                // 外圈 1–12：1 点在 30°、12 点在正上方 0°
-                outerHourLayouts.forEachIndexed { index, layout ->
-                    drawLabel(layout, (index + 1) % 12 * DEGREES_PER_DIAL_HOUR, outerLabelRadius)
-                }
-                // 内圈 13–24：13 点在 30°、24 点在正上方
-                innerHourLayouts.forEachIndexed { index, layout ->
-                    drawLabel(layout, (index + 1) % 12 * DEGREES_PER_DIAL_HOUR, innerLabelRadius)
-                }
-                // 高亮当前时针所在圈层的那一格
-                val dialHour = if (hour % 12 == 0) 12 else hour % 12
-                val angle = (dialHour % 12) * DEGREES_PER_DIAL_HOUR
-                if (hour in 1..12) {
-                    drawSelected(dialStyle.hourText(dialHour), angle, outerLabelRadius)
-                } else {
+        if (dialStyle != ClockDialStyle.INDEX) {
+            when (activeHand) {
+                ClockHand.MINUTE -> {
+                    // 5 分钟一格：00、05 …… 55，每格 30°
+                    minuteLayouts.forEachIndexed { index, layout ->
+                        drawLabel(layout, index * DEGREES_PER_MINUTE * 5f, outerLabelRadius)
+                    }
+                    // 高亮指针所在的那一格（最近的 5 分钟刻度）；分钟数字始终用阿拉伯数字
+                    val stickMinute = minute / 5 * 5
                     drawSelected(
-                        dialStyle.hourText(if (hour == 0) 24 else hour),
-                        angle,
-                        innerLabelRadius
+                        String.format(Locale.US, "%02d", stickMinute),
+                        stickMinute * DEGREES_PER_MINUTE,
+                        outerLabelRadius
                     )
                 }
-            }
 
-            else -> {
-                // 12 小时制沿用一天一圈：每 2 小时一个数字
-                dayHourLayouts.forEachIndexed { index, layout ->
-                    drawLabel(layout, index * 2 * DEGREES_PER_HOUR, dialRadius - 30.dp.toPx())
+                else -> {
+                    // 小时数字 1–12：1 点在 30°、12 点在正上方 0°
+                    hourLayouts.forEachIndexed { index, layout ->
+                        drawLabel(layout, (index + 1) % 12 * DEGREES_PER_DIAL_HOUR, outerLabelRadius)
+                    }
+                    // 高亮当前时针所在的那一格
+                    drawSelected(
+                        dialStyle.hourText(dialHour),
+                        (dialHour % 12) * DEGREES_PER_DIAL_HOUR,
+                        outerLabelRadius
+                    )
                 }
             }
         }
 
         // 时针吸附到整点、分针吸附到整分，保证指针位置与拖拽角度 1:1，不因分钟数提前偏移
-        // 24 小时制双圈盘面的时针按 12 格走，否则会和外圈数字错位
-        val hourOnDialAngle = if (use24Hour) {
-            (hour % 12) * DEGREES_PER_DIAL_HOUR
-        } else {
-            hour * DEGREES_PER_HOUR
-        }
+        val hourOnDialAngle = (dialHour % 12) * DEGREES_PER_DIAL_HOUR
         val minuteAngle = minute * DEGREES_PER_MINUTE
 
         // 当前指针扫过的淡色圆弧：用 smoothSweep 平滑跟随，点按时不再瞬跳
@@ -822,12 +798,7 @@ private fun AnalogClock(
             )
         }
 
-        // 时针长度随所选圈层变化：外圈 1–12 伸到外圈数字附近，内圈 13–24 只到内圈
-        val hourHandRatio = when {
-            !use24Hour -> HOUR_HAND_RATIO
-            hour in 1..12 -> OUTER_HOUR_HAND_RATIO
-            else -> INNER_HOUR_HAND_RATIO
-        }
+        val hourHandRatio = HOUR_HAND_RATIO
 
         // 非活动指针先画、活动指针压在上面；时针短、分针长，靠长短即可区分
         when (activeHand) {

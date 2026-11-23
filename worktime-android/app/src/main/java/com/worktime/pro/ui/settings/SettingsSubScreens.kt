@@ -5,6 +5,9 @@
  */
 package com.worktime.pro.ui.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
@@ -200,7 +204,7 @@ fun SettingsDisplayScreen(
             ItemDivider()
             ChipBlock(
                 title = "表盘数字样式",
-                description = "时间选择器表盘刻度数字的风格；读数与按钮始终用阿拉伯数字。"
+                description = "时间选择器表盘的刻度风格；时间固定 12 小时制，用上午/下午区分。"
             ) {
                 ClockDialStyle.entries.forEach { style ->
                     FilterChip(

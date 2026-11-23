@@ -49,32 +49,28 @@ enum class ThemeMode(val value: String, val label: String) {
 enum class ClockDialStyle(val value: String, val label: String) {
     ARABIC("ARABIC", "数字"),
     ROMAN("ROMAN", "罗马数字"),
-    MINIMAL("MINIMAL", "极简刻度");
+    INDEX("INDEX", "条丁刻度");
 
     /**
-     * 表盘小时刻度文字。
-     * @param pad 12 小时制单圈表盘沿用两位补零的 24 点标注（00/02/…/22），传 true。
-     *            MINIMAL 返回空串，表示不绘制数字、只保留刻度线。
+     * 表盘小时刻度文字；INDEX 条丁刻度返回空串，由表盘绘制实体条丁标记而非数字。
      */
-    fun hourText(value: Int, pad: Boolean = false): String = when (this) {
-        ARABIC -> if (pad) value.toString().padStart(2, '0') else value.toString()
+    fun hourText(value: Int): String = when (this) {
+        ARABIC -> value.toString()
         ROMAN -> roman(value)
-        MINIMAL -> ""
+        INDEX -> ""
     }
 
     companion object {
         fun fromValue(value: String): ClockDialStyle =
             entries.firstOrNull { it.value == value } ?: ARABIC
 
-        /** 0 映射为「十二点」，1–24 映射为 I–XXIV */
+        /** 1–12 映射为 I–XII */
         private val ROMAN = arrayOf(
-            "XII", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
-            "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
-            "XXI", "XXII", "XXIII", "XXIV"
+            "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"
         )
 
         private fun roman(value: Int): String =
-            ROMAN.getOrElse(value.coerceIn(0, 24)) { value.toString() }
+            ROMAN.getOrElse(value - 1) { value.toString() }
     }
 }
 

@@ -224,7 +224,6 @@ fun DayDetailScreen(
                 "修改${target.type.label}"
             },
             initialTime = initial,
-            use24Hour = use24Hour,
             onDismiss = { editingTarget = null },
             onConfirm = { time ->
                 val event = target.event

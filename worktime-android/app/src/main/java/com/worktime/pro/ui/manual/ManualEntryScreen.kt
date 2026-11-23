@@ -226,7 +226,6 @@ fun ManualEntryScreen(
             title = "打卡时刻",
             subtitle = "${TimeFormatter.formatDate(date)} · ${TimeFormatter.weekdayCN(date)}",
             initialTime = time,
-            use24Hour = use24Hour,
             onDismiss = { showTimePicker = false },
             onConfirm = { picked ->
                 time = picked
