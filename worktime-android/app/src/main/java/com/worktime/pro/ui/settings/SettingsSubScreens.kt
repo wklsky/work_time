@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
+import com.worktime.pro.data.datastore.ClockDialStyle
 import com.worktime.pro.data.datastore.ThemeMode
 import com.worktime.pro.data.datastore.TimeFormatMode
 import com.worktime.pro.domain.model.PunchType
@@ -63,7 +64,7 @@ fun SettingsPunchScreen(
 ) {
     val viewModel: SettingsViewModel = viewModel(factory = factory)
     val settings by viewModel.settingsFlow.collectAsState(initial = AppSettings())
-    val currentDefaultPunch = PunchType.entries.firstOrNull { it.name == settings.defaultPunchType }
+    val currentDefaultPunch = PunchType.fromName(settings.defaultPunchType)
         ?: PunchType.WORK_START
 
     SettingsPage(
@@ -119,6 +120,7 @@ fun SettingsDisplayScreen(
         ?: TimeFormatMode.SYSTEM
     val currentMode = CalendarDisplayMode.entries.firstOrNull { it.value == settings.calendarDisplayMode }
         ?: CalendarDisplayMode.WORK_TIME
+    val currentDialStyle = ClockDialStyle.fromValue(settings.clockDialStyle)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     SettingsPage(
@@ -194,6 +196,19 @@ fun SettingsDisplayScreen(
                     onClick = { viewModel.setTimeFormat(TimeFormatMode.HOUR_12) },
                     label = { Text("12 小时") }
                 )
+            }
+            ItemDivider()
+            ChipBlock(
+                title = "表盘数字样式",
+                description = "时间选择器表盘刻度数字的风格；读数与按钮始终用阿拉伯数字。"
+            ) {
+                ClockDialStyle.entries.forEach { style ->
+                    FilterChip(
+                        selected = currentDialStyle == style,
+                        onClick = { viewModel.setClockDialStyle(style) },
+                        label = { Text(style.label) }
+                    )
+                }
             }
         }
 

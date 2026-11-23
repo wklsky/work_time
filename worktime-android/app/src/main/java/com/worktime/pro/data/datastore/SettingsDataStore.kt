@@ -42,6 +42,42 @@ enum class ThemeMode(val value: String, val label: String) {
     BLACK_WHITE("BLACK_WHITE", "黑白")
 }
 
+/**
+ * 时间选择器表盘数字样式：控制模拟表盘刻度数字的呈现风格。
+ * 只影响表盘一圈的刻度文字，大号读数与确认按钮始终保留阿拉伯数字，保证工时精确可读。
+ */
+enum class ClockDialStyle(val value: String, val label: String) {
+    ARABIC("ARABIC", "数字"),
+    ROMAN("ROMAN", "罗马数字"),
+    MINIMAL("MINIMAL", "极简刻度");
+
+    /**
+     * 表盘小时刻度文字。
+     * @param pad 12 小时制单圈表盘沿用两位补零的 24 点标注（00/02/…/22），传 true。
+     *            MINIMAL 返回空串，表示不绘制数字、只保留刻度线。
+     */
+    fun hourText(value: Int, pad: Boolean = false): String = when (this) {
+        ARABIC -> if (pad) value.toString().padStart(2, '0') else value.toString()
+        ROMAN -> roman(value)
+        MINIMAL -> ""
+    }
+
+    companion object {
+        fun fromValue(value: String): ClockDialStyle =
+            entries.firstOrNull { it.value == value } ?: ARABIC
+
+        /** 0 映射为「十二点」，1–24 映射为 I–XXIV */
+        private val ROMAN = arrayOf(
+            "XII", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+            "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
+            "XXI", "XXII", "XXIII", "XXIV"
+        )
+
+        private fun roman(value: Int): String =
+            ROMAN.getOrElse(value.coerceIn(0, 24)) { value.toString() }
+    }
+}
+
 data class AppSettings(
     val calendarDisplayMode: String = CalendarDisplayMode.WORK_TIME.value,
     /** 默认 24 小时制，符合工时记录场景对精确时间的需求 */
@@ -60,6 +96,8 @@ data class AppSettings(
     val customDarkColors: String = "",
     /** 字号缩放：0.9 / 1.0 / 1.15 */
     val fontScale: Float = 1f,
+    /** 时间选择器表盘数字样式 */
+    val clockDialStyle: String = ClockDialStyle.ARABIC.value,
     /** 累计工时提醒：达到类型阈值后发送系统通知 */
     val reminderEnabled: Boolean = false,
     val reminderType: String = ReminderType.OVERTIME.value,
@@ -80,6 +118,7 @@ class SettingsDataStore(private val context: Context) {
         val CUSTOM_LIGHT = stringPreferencesKey("custom_light_colors")
         val CUSTOM_DARK = stringPreferencesKey("custom_dark_colors")
         val FONT_SCALE = floatPreferencesKey("font_scale")
+        val CLOCK_DIAL_STYLE = stringPreferencesKey("clock_dial_style")
         val REMINDER_ENABLED = booleanPreferencesKey("reminder_enabled")
         val REMINDER_TYPE = stringPreferencesKey("reminder_type")
         val REMINDER_MINUTES = intPreferencesKey("reminder_minutes")
@@ -98,6 +137,7 @@ class SettingsDataStore(private val context: Context) {
             customLightColors = prefs[Keys.CUSTOM_LIGHT] ?: "",
             customDarkColors = prefs[Keys.CUSTOM_DARK] ?: "",
             fontScale = prefs[Keys.FONT_SCALE] ?: 1f,
+            clockDialStyle = prefs[Keys.CLOCK_DIAL_STYLE] ?: ClockDialStyle.ARABIC.value,
             reminderEnabled = prefs[Keys.REMINDER_ENABLED] ?: false,
             reminderType = prefs[Keys.REMINDER_TYPE] ?: ReminderType.OVERTIME.value,
             reminderMinutes = prefs[Keys.REMINDER_MINUTES] ?: 420,
@@ -137,6 +177,9 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setFontScale(value: Float) =
         context.dataStore.edit { it[Keys.FONT_SCALE] = value.coerceIn(0.8f, 1.3f) }
+
+    suspend fun setClockDialStyle(value: String) =
+        context.dataStore.edit { it[Keys.CLOCK_DIAL_STYLE] = value }
 
     suspend fun setReminderEnabled(enabled: Boolean) =
         context.dataStore.edit { it[Keys.REMINDER_ENABLED] = enabled }

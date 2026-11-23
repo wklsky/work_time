@@ -43,17 +43,14 @@ class BackupManager(
                 put("calendarDisplayMode", settings.calendarDisplayMode)
                 put("timeFormat", settings.timeFormat)
                 put("showOvertimeShade", settings.showOvertimeShade)
-                put("defaultInputMode", settings.defaultInputMode)
                 put("defaultPunchType", settings.defaultPunchType)
-                put("ocrAutoFill", settings.ocrAutoFill)
-                put("gallerySaveEnabled", settings.gallerySaveEnabled)
-                put("statusMapping", settings.statusMapping)
                 put("themeMode", settings.themeMode)
                 put("habits", settings.habits)
                 put("customThemeEnabled", settings.customThemeEnabled)
                 put("customLightColors", settings.customLightColors)
                 put("customDarkColors", settings.customDarkColors)
                 put("fontScale", settings.fontScale.toDouble())
+                put("clockDialStyle", settings.clockDialStyle)
                 put("reminderEnabled", settings.reminderEnabled)
                 put("reminderType", settings.reminderType)
                 put("reminderMinutes", settings.reminderMinutes)
@@ -171,7 +168,6 @@ class BackupManager(
         ruleDao.insertAll(rules)
         // 恢复全部设置，保证换机/重装后行为一致；备份不含照片
         json.optJSONObject("settings")?.let { saved ->
-            saved.optString("statusMapping").let { settingsDataStore.setStatusMapping(it) }
             saved.optString("themeMode").takeIf { it.isNotBlank() }?.let {
                 settingsDataStore.setThemeMode(it)
             }
@@ -182,20 +178,11 @@ class BackupManager(
             saved.optString("timeFormat").takeIf { it.isNotBlank() }?.let {
                 settingsDataStore.setTimeFormat(it)
             }
-            saved.optString("defaultInputMode").takeIf { it.isNotBlank() }?.let {
-                settingsDataStore.setDefaultInputMode(it)
-            }
             saved.optString("defaultPunchType").takeIf { it.isNotBlank() }?.let {
                 settingsDataStore.setDefaultPunchType(it)
             }
             if (saved.has("showOvertimeShade")) {
                 settingsDataStore.setOvertimeShade(saved.optBoolean("showOvertimeShade"))
-            }
-            if (saved.has("ocrAutoFill")) {
-                settingsDataStore.setOcrAutoFill(saved.optBoolean("ocrAutoFill"))
-            }
-            if (saved.has("gallerySaveEnabled")) {
-                settingsDataStore.setGallerySaveEnabled(saved.optBoolean("gallerySaveEnabled"))
             }
             if (saved.has("customThemeEnabled")) {
                 settingsDataStore.setCustomThemeEnabled(saved.optBoolean("customThemeEnabled"))
@@ -208,6 +195,9 @@ class BackupManager(
             }
             if (saved.has("fontScale")) {
                 settingsDataStore.setFontScale(saved.optDouble("fontScale", 1.0).toFloat())
+            }
+            saved.optString("clockDialStyle").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setClockDialStyle(it)
             }
             if (saved.has("reminderEnabled")) {
                 settingsDataStore.setReminderEnabled(saved.optBoolean("reminderEnabled"))
@@ -231,11 +221,10 @@ class BackupManager(
 
     private fun JSONObject.toPunchEvent() = com.worktime.pro.data.db.PunchEventEntity(
         id = optLong("id"), workDate = optString("workDate"), punchType = optString("punchType"),
-        punchTime = optLong("punchTime"), source = optString("source"),
+        punchTime = optLong("punchTime"),
+        // 兼容旧备份里残留的 OCR 来源，统一改写为手动录入
+        source = optString("source").let { if (it == "OCR") "MANUAL" else it },
         sessionId = if (isNull("sessionId")) null else optLong("sessionId"),
-        imagePath = if (isNull("imagePath")) null else optString("imagePath"),
-        ocrRawText = if (isNull("ocrRawText")) null else optString("ocrRawText"),
-        confidence = if (isNull("confidence")) null else optString("confidence"),
         remark = if (isNull("remark")) null else optString("remark"),
         createTime = optLong("createTime"), updateTime = optLong("updateTime")
     )
@@ -269,8 +258,7 @@ class BackupManager(
         is com.worktime.pro.data.db.PunchEventEntity -> mapOf(
             "id" to id, "workDate" to workDate, "punchType" to punchType,
             "punchTime" to punchTime, "source" to source, "sessionId" to sessionId,
-            "imagePath" to imagePath, "ocrRawText" to ocrRawText,
-            "confidence" to confidence, "remark" to remark,
+            "remark" to remark,
             "createTime" to createTime, "updateTime" to updateTime
         )
         is com.worktime.pro.data.db.WorkSessionEntity -> mapOf(

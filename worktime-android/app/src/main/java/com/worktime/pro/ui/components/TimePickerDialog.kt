@@ -54,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -90,6 +91,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.worktime.pro.data.datastore.AppSettings
+import com.worktime.pro.data.datastore.ClockDialStyle
+import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.delay
 import java.time.LocalTime
@@ -150,6 +154,12 @@ fun TimePickerDialog(
             delay(160)
             activeHand = ClockHand.MINUTE
         }
+    }
+
+    // 表盘数字样式：只影响表盘刻度，读数与按钮文案保持阿拉伯数字
+    val settings by LocalSettings.current.settings.collectAsState(initial = AppSettings())
+    val dialStyle = remember(settings.clockDialStyle) {
+        ClockDialStyle.fromValue(settings.clockDialStyle)
     }
 
     val selectedTime = remember(hour, minute) { LocalTime.of(hour, minute) }
@@ -283,6 +293,7 @@ fun TimePickerDialog(
                             minute = minute,
                             use24Hour = use24Hour,
                             activeHand = activeHand,
+                            dialStyle = dialStyle,
                             selectedLabel = selectedLabel,
                             onHourChange = { hour = it },
                             onMinuteChange = { minute = it },
@@ -465,6 +476,7 @@ private fun AnalogClock(
     minute: Int,
     use24Hour: Boolean,
     activeHand: ClockHand,
+    dialStyle: ClockDialStyle,
     selectedLabel: String,
     onHourChange: (Int) -> Unit,
     onMinuteChange: (Int) -> Unit,
@@ -525,29 +537,37 @@ private fun AnalogClock(
 
     // 表盘数字不随拖动变化，预先排版，避免每帧重新测量
     // 24 小时制：外圈 1–12、内圈 13–24；12 小时制沿用一天一圈的 24 点标注
-    val outerHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant) {
-        (1..12).map { h -> measureDialLabel(textMeasurer, h.toString(), scheme.onSurfaceVariant) }
+    val outerHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant, dialStyle) {
+        (1..12).map { h ->
+            measureDialLabel(textMeasurer, dialStyle.hourText(h), scheme.onSurfaceVariant)
+        }
     }
-    val innerHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant) {
-        (13..24).map { h -> measureDialLabel(textMeasurer, h.toString(), scheme.onSurfaceVariant) }
+    val innerHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant, dialStyle) {
+        (13..24).map { h ->
+            measureDialLabel(textMeasurer, dialStyle.hourText(h), scheme.onSurfaceVariant)
+        }
     }
-    val dayHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant) {
+    val dayHourLayouts = remember(textMeasurer, scheme.onSurfaceVariant, dialStyle) {
         (0 until HOURS_IN_DAY step 2).map { h ->
             measureDialLabel(
                 textMeasurer,
-                String.format(Locale.US, "%02d", h),
+                dialStyle.hourText(h, pad = true),
                 scheme.onSurfaceVariant
             )
         }
     }
-    // 分钟盘以 5 分钟为刻度：00、05 …… 55 共 12 个数字
-    val minuteLayouts = remember(textMeasurer, scheme.onSurfaceVariant) {
-        (0 until 60 step 5).map { m ->
-            measureDialLabel(
-                textMeasurer,
-                String.format(Locale.US, "%02d", m),
-                scheme.onSurfaceVariant
-            )
+    // 分钟盘以 5 分钟为刻度：00、05 …… 55 共 12 个数字；极简样式下不绘制分钟数字
+    val minuteLayouts = remember(textMeasurer, scheme.onSurfaceVariant, dialStyle) {
+        if (dialStyle == ClockDialStyle.MINIMAL) {
+            emptyList()
+        } else {
+            (0 until 60 step 5).map { m ->
+                measureDialLabel(
+                    textMeasurer,
+                    String.format(Locale.US, "%02d", m),
+                    scheme.onSurfaceVariant
+                )
+            }
         }
     }
 
@@ -697,9 +717,10 @@ private fun AnalogClock(
             )
         }
 
-        /** 当前选中的数字用主题色重绘，明确「指针停在哪一格」 */
-        fun drawSelected(hourLabel: Int, angle: Float, radius: Float, fontSize: TextUnit = 10.sp) {
-            val layout = measureDialLabel(textMeasurer, hourLabel.toString(), activeColor, fontSize)
+        /** 当前选中的数字用主题色重绘，明确「指针停在哪一格」；空串表示不绘制（极简样式） */
+        fun drawSelected(text: String, angle: Float, radius: Float, fontSize: TextUnit = 10.sp) {
+            if (text.isEmpty()) return
+            val layout = measureDialLabel(textMeasurer, text, activeColor, fontSize)
             drawLabel(layout, angle, radius)
         }
 
@@ -709,9 +730,14 @@ private fun AnalogClock(
                 minuteLayouts.forEachIndexed { index, layout ->
                     drawLabel(layout, index * DEGREES_PER_MINUTE * 5f, outerLabelRadius)
                 }
-                // 高亮指针所在的那一格（最近的 5 分钟刻度）
+                // 高亮指针所在的那一格（最近的 5 分钟刻度）；分钟数字始终用阿拉伯数字
                 val stickMinute = minute / 5 * 5
-                drawSelected(stickMinute, stickMinute * DEGREES_PER_MINUTE, outerLabelRadius)
+                val stickText = if (dialStyle == ClockDialStyle.MINIMAL) {
+                    ""
+                } else {
+                    String.format(Locale.US, "%02d", stickMinute)
+                }
+                drawSelected(stickText, stickMinute * DEGREES_PER_MINUTE, outerLabelRadius)
             }
 
             use24Hour -> {
@@ -727,9 +753,13 @@ private fun AnalogClock(
                 val dialHour = if (hour % 12 == 0) 12 else hour % 12
                 val angle = (dialHour % 12) * DEGREES_PER_DIAL_HOUR
                 if (hour in 1..12) {
-                    drawSelected(dialHour, angle, outerLabelRadius)
+                    drawSelected(dialStyle.hourText(dialHour), angle, outerLabelRadius)
                 } else {
-                    drawSelected(if (hour == 0) 24 else hour, angle, innerLabelRadius)
+                    drawSelected(
+                        dialStyle.hourText(if (hour == 0) 24 else hour),
+                        angle,
+                        innerLabelRadius
+                    )
                 }
             }
 

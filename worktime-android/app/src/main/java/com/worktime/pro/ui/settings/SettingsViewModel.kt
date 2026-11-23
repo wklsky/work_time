@@ -8,6 +8,7 @@ package com.worktime.pro.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.worktime.pro.data.datastore.CalendarDisplayMode
+import com.worktime.pro.data.datastore.ClockDialStyle
 import com.worktime.pro.data.datastore.SettingsDataStore
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.domain.reminder.ReminderType
@@ -39,6 +40,10 @@ class SettingsViewModel(
 
     fun setTimeFormat(mode: com.worktime.pro.data.datastore.TimeFormatMode) {
         viewModelScope.launch { settings.setTimeFormat(mode.value) }
+    }
+
+    fun setClockDialStyle(style: ClockDialStyle) {
+        viewModelScope.launch { settings.setClockDialStyle(style.value) }
     }
 
     fun setReminderEnabled(enabled: Boolean) {

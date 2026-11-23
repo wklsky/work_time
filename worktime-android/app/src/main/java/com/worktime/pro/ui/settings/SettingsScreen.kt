@@ -46,7 +46,7 @@ fun SettingsScreen(
         ?: TimeFormatMode.SYSTEM
     val currentMode = CalendarDisplayMode.entries.firstOrNull { it.value == settings.calendarDisplayMode }
         ?: CalendarDisplayMode.WORK_TIME
-    val currentDefaultPunch = PunchType.entries.firstOrNull { it.name == settings.defaultPunchType }
+    val currentDefaultPunch = PunchType.fromName(settings.defaultPunchType)
         ?: PunchType.WORK_START
     val currentReminderType = ReminderType.entries.firstOrNull { it.value == settings.reminderType }
         ?: ReminderType.OVERTIME
