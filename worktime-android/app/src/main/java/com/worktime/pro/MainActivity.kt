@@ -10,6 +10,9 @@ import androidx.activity.ComponentActivity
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -43,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -55,6 +59,7 @@ import com.worktime.pro.ui.LocalRepository
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.ui.components.AdaptiveContent
+import com.worktime.pro.ui.motion.rememberHaptics
 import com.worktime.pro.ui.components.AppWindowSize
 import com.worktime.pro.ui.components.rememberAppWindowSize
 import com.worktime.pro.ui.detail.DayDetailScreen
@@ -81,6 +86,27 @@ private val TAB_ITEMS = listOf(
     TabItem("mine", "我的", Icons.Filled.Person)
 )
 private val TAB_ROUTES = TAB_ITEMS.map { it.route }.toSet()
+
+/** 底部/侧栏 Tab 图标：选中时轻微放大回弹，给切换一个轻快的反馈 */
+@Composable
+private fun NavIcon(selected: Boolean, icon: ImageVector, label: String) {
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.15f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "navIconScale"
+    )
+    Icon(
+        imageVector = icon,
+        contentDescription = label,
+        modifier = Modifier.graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+    )
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -110,6 +136,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     val currentRoute by navController.currentBackStackEntryAsState()
+                    val haptics = rememberHaptics()
                     // 记录最后停留的主 Tab，手动录入保存后回到来源页
                     var lastMainTab by remember { mutableStateOf("today") }
                     // 仅三个主 Tab 显示底部导航，进入子页面（详情/设置等）时隐藏
@@ -119,6 +146,7 @@ class MainActivity : ComponentActivity() {
                     // Tab 切换规则两处复用：清空中间栈并保存/恢复各 Tab 自己的返回栈
                     val onSelectTab: (TabItem) -> Unit = { tab ->
                         lastMainTab = tab.route
+                        haptics.select()
                         navController.navigate(tab.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
                                 saveState = true
@@ -138,7 +166,7 @@ class MainActivity : ComponentActivity() {
                                         NavigationBarItem(
                                             selected = currentRoute?.destination?.route == tab.route,
                                             onClick = { onSelectTab(tab) },
-                                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                            icon = { NavIcon(selected = currentRoute?.destination?.route == tab.route, icon = tab.icon, label = tab.label) },
                                             label = { Text(tab.label) },
                                             colors = NavigationBarItemDefaults.colors(
                                                 selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -164,7 +192,7 @@ class MainActivity : ComponentActivity() {
                                         NavigationRailItem(
                                             selected = currentRoute?.destination?.route == tab.route,
                                             onClick = { onSelectTab(tab) },
-                                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                            icon = { NavIcon(selected = currentRoute?.destination?.route == tab.route, icon = tab.icon, label = tab.label) },
                                             label = { Text(tab.label) },
                                             colors = NavigationRailItemDefaults.colors(
                                                 selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -234,7 +262,7 @@ private fun AppNavHost(
         navController = navController,
         startDestination = "today",
         enterTransition = {
-            fadeIn(tween(200)) + slideInHorizontally(tween(220)) { it / 10 }
+            fadeIn(tween(200)) + slideInHorizontally(tween(220)) { it / 4 }
         },
         exitTransition = { fadeOut(tween(140)) },
         popEnterTransition = { fadeIn(tween(200)) },

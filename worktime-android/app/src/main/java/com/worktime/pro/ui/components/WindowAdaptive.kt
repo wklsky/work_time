@@ -14,8 +14,11 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /**
  * 窗口宽度档位，断点对齐 Material3 规范，但不额外引入 window-size-class 依赖：
@@ -30,16 +33,33 @@ enum class AppWindowSize { COMPACT, MEDIUM, EXPANDED }
  */
 val CONTENT_MAX_WIDTH: Dp = 640.dp
 
-/** 按当前窗口宽度取档位；用 configuration 而不是每页套一层 BoxWithConstraints，避免重复测量 */
+/** 按当前窗口宽度取档位；用真实窗口宽而非整屏宽，分屏/自由窗口/横屏下断点才正确 */
 @Composable
 @ReadOnlyComposable
 fun rememberAppWindowSize(): AppWindowSize {
-    val width = LocalConfiguration.current.screenWidthDp
+    val width = currentWindowWidthDp()
     return when {
         width >= 840 -> AppWindowSize.EXPANDED
         width >= 600 -> AppWindowSize.MEDIUM
         else -> AppWindowSize.COMPACT
     }
+}
+
+/**
+ * 当前应用窗口宽度（dp）。
+ * 手机分屏时 screenWidthDp 仍是整屏宽，会把半个屏误判成大屏；
+ * 改用 LocalWindowInfo.containerSize（Compose 内部取自 WindowManager 窗口 metrics），
+ * 取不到（为 0）时回落到 screenWidthDp 兜底。
+ */
+@Composable
+@ReadOnlyComposable
+private fun currentWindowWidthDp(): Int {
+    val windowWidthPx = LocalWindowInfo.current.containerSize.width
+    if (windowWidthPx > 0f) {
+        val density = LocalDensity.current
+        return with(density) { windowWidthPx.toDp().value.roundToInt() }
+    }
+    return LocalConfiguration.current.screenWidthDp
 }
 
 /**
