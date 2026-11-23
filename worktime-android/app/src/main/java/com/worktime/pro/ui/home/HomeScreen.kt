@@ -6,6 +6,13 @@
 package com.worktime.pro.ui.home
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,8 +35,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -61,13 +73,18 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.CalendarDisplayMode
 import com.worktime.pro.data.datastore.PunchHabit
 import com.worktime.pro.ui.ViewModelFactory
+import com.worktime.pro.ui.components.EmptyState
+import com.worktime.pro.ui.components.YearMonthPicker
+import com.worktime.pro.ui.motion.CountUpText
+import com.worktime.pro.ui.motion.Motion
+import com.worktime.pro.ui.motion.motionDuration
 import com.worktime.pro.util.TimeFormatter
 import java.time.YearMonth
 
 private val WEEKDAYS = listOf("一", "二", "三", "四", "五", "六", "日")
 private const val GRID_CELLS = 42
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     factory: ViewModelFactory,
@@ -85,6 +102,8 @@ fun HomeScreen(
     val context = LocalContext.current
     var pendingHabit by remember { mutableStateOf<PunchHabit?>(null) }
     var monthDrag by remember { mutableFloatStateOf(0f) }
+    // 年月快速跳转弹层开关
+    var showMonthPicker by remember { mutableStateOf(false) }
     val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
 
     val monthDays = days.filter { it.isCurrentMonth }
@@ -92,6 +111,8 @@ fun HomeScreen(
     val monthOvertime = monthDays.sumOf { it.overtimeMinutes }
     val attendanceDays = monthDays.count { it.recordCount > 0 }
     val incompleteDays = monthDays.filter { it.isIncomplete }
+    // 切月滑动时长：transitionSpec 是非组合上下文，先折算好再传入
+    val monthDuration = motionDuration(Motion.BASE)
 
     // 加垂直滚动：月历 6 行 + 底部操作栏可能超出屏幕，保证手动录入入口可达
     Column(
@@ -121,12 +142,25 @@ fun HomeScreen(
             IconButton(onClick = { viewModel.changeMonth(-1) }) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上个月")
             }
-            Text(
-                text = "${month.year}年${month.monthValue}月",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
+            AnimatedContent(
+                targetState = month,
+                transitionSpec = {
+                    val forward = targetState > initialState
+                    val dir = if (forward) 1 else -1
+                    (slideInHorizontally(tween(monthDuration)) { it / 4 * dir } + fadeIn(tween(monthDuration))) togetherWith
+                        (slideOutHorizontally(tween(monthDuration)) { -it / 4 * dir } + fadeOut(tween(monthDuration)))
+                },
+                label = "monthSwitch"
+            ) { m ->
+                Text(
+                    text = "${m.year}年${m.monthValue}月",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp, vertical = 4.dp)
+                        .clickable { showMonthPicker = true }
+                )
+            }
             IconButton(onClick = { viewModel.changeMonth(1) }) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下个月")
             }
@@ -140,31 +174,32 @@ fun HomeScreen(
             Row(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                 MonthMetric(
                     label = "出勤",
-                    value = "${attendanceDays}天",
+                    target = attendanceDays,
                     color = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.weight(1f)
-                )
+                ) { "$it天" }
                 MonthMetric(
                     label = "正常",
-                    value = TimeFormatter.formatHours(monthRegular).ifBlank { "0h" },
+                    target = monthRegular,
                     color = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.weight(1f)
-                )
+                ) { TimeFormatter.formatHours(it).ifBlank { "0h" } }
                 MonthMetric(
                     label = "加班",
-                    value = TimeFormatter.formatHours(monthOvertime).ifBlank { "0h" },
+                    target = monthOvertime,
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.weight(1f)
-                )
+                ) { TimeFormatter.formatHours(it).ifBlank { "0h" } }
             }
         }
 
         if (attendanceDays == 0 && month == YearMonth.now()) {
-            Text(
-                "本月还没有记录，手动录入开始",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            EmptyState(
+                icon = Icons.Filled.EventNote,
+                title = "本月还没有记录",
+                description = "从手动录入开始，记录第一条工时。",
+                actionLabel = "手动录入",
+                onAction = onOpenManual
             )
         }
 
@@ -255,11 +290,12 @@ fun HomeScreen(
             TextButton(onClick = onOpenHabits) { Text("管理") }
         }
         if (habits.isEmpty()) {
-            Text(
-                "暂无习惯，可在设置中添加固定班次。",
-                modifier = Modifier.padding(horizontal = 16.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            EmptyState(
+                icon = Icons.Filled.Schedule,
+                title = "暂无习惯",
+                description = "可在设置中添加固定班次，今日页一键写入。",
+                iconSize = 48.dp,
+                glyphSize = 22.dp
             )
         } else {
             FlowRow(
@@ -297,17 +333,52 @@ fun HomeScreen(
         }
     }
 
+    if (showMonthPicker) {
+        YearMonthPicker(
+            initial = month,
+            onDismiss = { showMonthPicker = false },
+            onConfirm = { picked ->
+                viewModel.goToMonth(picked)
+                showMonthPicker = false
+            }
+        )
+    }
+
     if (pendingHabit != null) {
         val habit = pendingHabit!!
-        AlertDialog(
-            onDismissRequest = { pendingHabit = null },
-            title = { Text("应用习惯") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "今天已有打卡记录。追加会保留现有记录并写入习惯时间；覆盖会先清空今天记录，再写入习惯时间。"
-                    )
-                    TextButton(onClick = {
+        ModalBottomSheet(onDismissRequest = { pendingHabit = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    "应用习惯「${habit.name}」",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "今天已有打卡记录。追加会保留现有记录并写入习惯时间；覆盖会先清空今天记录，再写入习惯时间。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = {
+                        viewModel.applyHabit(habit, overwrite = false) { error ->
+                            Toast.makeText(
+                                context,
+                                error ?: "已追加应用「${habit.name}」",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        pendingHabit = null
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("追加应用") }
+                OutlinedButton(
+                    onClick = {
                         viewModel.applyHabit(habit, overwrite = true) { error ->
                             Toast.makeText(
                                 context,
@@ -316,27 +387,18 @@ fun HomeScreen(
                             ).show()
                         }
                         pendingHabit = null
-                    }) {
-                        Text("覆盖应用", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.applyHabit(habit, overwrite = false) { error ->
-                        Toast.makeText(
-                            context,
-                            error ?: "已追加应用「${habit.name}」",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                    pendingHabit = null
-                }) { Text("追加应用") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingHabit = null }) { Text("取消") }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("覆盖应用") }
+                TextButton(
+                    onClick = { pendingHabit = null },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("取消") }
             }
-        )
+        }
     }
 }
 
@@ -450,16 +512,18 @@ private fun overtimeShade(minutes: Int): Color {
 @Composable
 private fun MonthMetric(
     label: String,
-    value: String,
+    target: Int,
     color: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    format: (Int) -> String
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value,
+        CountUpText(
+            target = target,
+            format = format,
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = color
+            color = color,
+            fontWeight = FontWeight.Bold
         )
         Text(
             text = label,

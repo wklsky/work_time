@@ -118,6 +118,11 @@ class HomeViewModel(
         _displayedMonth.value = YearMonth.now()
     }
 
+    /** 年月快速跳转：直接定位到指定月份，供月份标题点击弹层使用 */
+    fun goToMonth(month: YearMonth) {
+        _displayedMonth.value = month
+    }
+
     fun setCalendarDisplayMode(mode: String) {
         viewModelScope.launch {
             settings.setCalendarDisplayMode(mode)
