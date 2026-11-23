@@ -63,11 +63,12 @@ import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.db.PunchEventEntity
 import com.worktime.pro.data.db.WorkSessionEntity
 import com.worktime.pro.data.db.toDayTotals
-import com.worktime.pro.domain.model.PunchSource
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.ui.components.TimePickerDialog
+import com.worktime.pro.ui.sourceLabel
+import com.worktime.pro.ui.typeLabel
 import com.worktime.pro.util.TimeFormatter
 import java.time.Duration
 import java.time.LocalDateTime
@@ -104,8 +105,7 @@ fun TodayScreen(
     val allowedQuickTypes = remember(state.events) { allowedQuickTypesFor(state.events) }
     // 设置里的默认动作：上班 / 加班到
     val preferredQuickType = remember(settings.defaultPunchType) {
-        PunchType.entries.firstOrNull { it.name == settings.defaultPunchType }
-            ?: PunchType.WORK_START
+        PunchType.fromName(settings.defaultPunchType) ?: PunchType.WORK_START
     }
     LaunchedEffect(allowedQuickTypes, preferredQuickType) {
         // 两种起始动作都可用时听设置；只剩唯一下一步（下班/加班退）时以状态为准
@@ -372,7 +372,7 @@ fun TodayScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "拍一张考勤机屏幕自动识别，或按上面的按钮记录时间。",
+                        "点击上方按钮，或使用底部「手动录入」记录今天的时间。",
                         style = MaterialTheme.typography.bodySmall,
                         color = muted
                     )
@@ -398,14 +398,12 @@ fun TodayScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        // 手动录入入口
-        Row(horizontalArrangement = Arrangement.Center) {
-            Button(
-                onClick = onOpenManual,
-                modifier = Modifier.fillMaxWidth(0.8f).height(48.dp)
-            ) {
-                Text("手动录入")
-            }
+        // 手动录入入口：补齐今天任意时刻的多段记录
+        OutlinedButton(
+            onClick = onOpenManual,
+            modifier = Modifier.fillMaxWidth().height(48.dp)
+        ) {
+            Text("手动录入")
         }
 
         if (state.events.isNotEmpty()) {
@@ -570,12 +568,6 @@ private fun PunchRecordRow(
         }
     }
 }
-
-private fun PunchEventEntity.typeLabel(): String =
-    PunchType.entries.firstOrNull { it.name == punchType }?.label ?: punchType
-
-private fun PunchEventEntity.sourceLabel(): String =
-    PunchSource.entries.firstOrNull { it.name == source }?.label ?: source
 
 /** 按钮动词与实际动作同名：开口说「开始加班」，完成说「结束加班」 */
 private fun PunchType.ctaLabel(): String = when (this) {

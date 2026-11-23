@@ -32,9 +32,6 @@ data class PunchEventEntity(
     val punchTime: Long,
     val source: String,
     val sessionId: Long? = null,
-    val imagePath: String? = null,
-    val ocrRawText: String? = null,
-    val confidence: String? = null,
     val remark: String? = null,
     val createTime: Long,
     val updateTime: Long

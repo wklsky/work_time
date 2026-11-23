@@ -44,9 +44,6 @@ interface PunchEventDao {
     @Query("SELECT * FROM punch_event WHERE workDate BETWEEN :start AND :end ORDER BY workDate, punchTime")
     suspend fun getByRange(start: String, end: String): List<PunchEventEntity>
 
-    @Query("SELECT * FROM punch_event WHERE workDate = :date AND punchType = :type ORDER BY punchTime ASC")
-    suspend fun getByDateAndType(date: String, type: String): List<PunchEventEntity>
-
     @Query("SELECT DISTINCT workDate FROM punch_event WHERE workDate BETWEEN :start AND :end ORDER BY workDate")
     suspend fun getDatesInRange(start: String, end: String): List<String>
 

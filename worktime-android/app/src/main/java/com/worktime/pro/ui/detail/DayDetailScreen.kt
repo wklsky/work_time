@@ -25,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -52,18 +51,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.db.PunchEventEntity
 import com.worktime.pro.data.db.toDayTotals
-import com.worktime.pro.domain.evidence.EvidenceStore
-import com.worktime.pro.domain.model.PunchSource
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
-import com.worktime.pro.ui.components.EvidenceViewer
 import com.worktime.pro.ui.components.TimePickerDialog
+import com.worktime.pro.ui.sourceLabel
+import com.worktime.pro.ui.typeLabel
 import com.worktime.pro.util.TimeFormatter
-import java.io.File
-import java.time.Instant
 import java.time.LocalTime
-import java.time.ZoneId
 
 private data class PunchEditorTarget(
     val type: PunchType,
@@ -88,19 +83,8 @@ fun DayDetailScreen(
 
     // 正在编辑/补录的目标：event 为空表示新增一段
     var editingTarget by remember { mutableStateOf<PunchEditorTarget?>(null) }
-    // 正在查看的凭证文件
-    var viewingEvidence by remember { mutableStateOf<File?>(null) }
     // 待确认删除的打卡
     var pendingDelete by remember { mutableStateOf<PunchEventEntity?>(null) }
-
-    fun viewEvidence(path: String) {
-        val file = EvidenceStore.resolve(context, path)
-        if (file != null) {
-            viewingEvidence = file
-        } else {
-            Toast.makeText(context, "凭证图片已丢失", Toast.LENGTH_SHORT).show()
-        }
-    }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
@@ -133,13 +117,12 @@ fun DayDetailScreen(
                     )
                 } else {
                     state.events.forEach { event ->
-                        val type = PunchType.entries.firstOrNull { it.name == event.punchType }
+                        val type = PunchType.fromName(event.punchType)
                         if (type != null) {
                             EventRow(
                                 event = event,
                                 type = type,
                                 use24Hour = use24Hour,
-                                onViewEvidence = { path -> viewEvidence(path) },
                                 onEdit = { editingTarget = PunchEditorTarget(type, event) },
                                 onDelete = { pendingDelete = event }
                             )
@@ -212,13 +195,8 @@ fun DayDetailScreen(
         }
     }
 
-    viewingEvidence?.let { file ->
-        EvidenceViewer(file = file, onDismiss = { viewingEvidence = null })
-    }
-
     pendingDelete?.let { event ->
-        val typeLabel = PunchType.entries.firstOrNull { it.name == event.punchType }?.label
-            ?: event.punchType
+        val typeLabel = event.typeLabel()
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("删除打卡") },
@@ -237,7 +215,7 @@ fun DayDetailScreen(
 
     editingTarget?.let { target ->
         val initial = target.event?.let {
-            Instant.ofEpochMilli(it.punchTime).atZone(ZoneId.systemDefault()).toLocalTime()
+            TimeFormatter.millisToLocalTime(it.punchTime)
         } ?: defaultTimeFor(target.type)
         TimePickerDialog(
             title = if (target.event == null) {
@@ -278,12 +256,11 @@ private fun EventRow(
     event: PunchEventEntity,
     type: PunchType,
     use24Hour: Boolean,
-    onViewEvidence: (String) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val time = Instant.ofEpochMilli(event.punchTime).atZone(ZoneId.systemDefault()).toLocalTime()
-    val sourceLabel = PunchSource.entries.firstOrNull { it.name == event.source }?.label ?: event.source
+    val time = TimeFormatter.millisToLocalTime(event.punchTime)
+    val sourceLabel = event.sourceLabel()
 
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
@@ -300,12 +277,6 @@ private fun EventRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-        }
-        val imagePath = event.imagePath
-        if (imagePath != null) {
-            IconButton(onClick = { onViewEvidence(imagePath) }) {
-                Icon(Icons.Filled.Image, contentDescription = "查看凭证")
             }
         }
         IconButton(onClick = onEdit) {

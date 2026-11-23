@@ -30,6 +30,9 @@ enum class PunchType(val label: String) {
 
         fun fromStatusCode(code: String): PunchType? = STATUS_CODES[code.trim()]
 
+        /** 按枚举名反查，供实体里的 punchType 字符串转回类型使用 */
+        fun fromName(name: String): PunchType? = entries.firstOrNull { it.name == name }
+
         /** 中文关键词映射，仅作为无状态列屏幕的兜底方案 */
         val KEYWORDS: Map<PunchType, List<String>> = mapOf(
             WORK_START to listOf("上班签到", "上班打卡", "上班签入", "上班"),
@@ -41,13 +44,13 @@ enum class PunchType(val label: String) {
 }
 
 enum class PunchSource(val label: String) {
-    OCR("拍照识别"),
     MANUAL("手动录入"),
-    BUTTON("按钮打卡")
-}
+    BUTTON("按钮打卡");
 
-enum class Confidence(val label: String) {
-    HIGH("高"), MEDIUM("中"), LOW("低")
+    companion object {
+        /** 按枚举名反查，供实体里的 source 字符串转回来源使用 */
+        fun fromName(name: String): PunchSource? = entries.firstOrNull { it.name == name }
+    }
 }
 
 enum class SessionType(val label: String) {
@@ -64,16 +67,4 @@ data class CalculationResult(
     val standardMinutes: Int,
     val bufferMinutes: Int,
     val formula: String
-)
-
-/** 某日工时段汇总，供首页日历下方显示与日详情使用 */
-data class DaySummary(
-    val date: String,
-    val regularMinutes: Int = 0,
-    val overtimeMinutes: Int = 0,
-    val firstWorkStart: String? = null,
-    val lastWorkEnd: String? = null,
-    val firstOtStart: String? = null,
-    val lastOtEnd: String? = null,
-    val recordCount: Int = 0
 )

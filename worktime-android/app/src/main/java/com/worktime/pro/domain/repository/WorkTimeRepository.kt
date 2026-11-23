@@ -12,34 +12,28 @@ import com.worktime.pro.data.db.PunchEventEntity
 import com.worktime.pro.data.db.WorkRuleDao
 import com.worktime.pro.data.db.WorkSessionDao
 import com.worktime.pro.data.db.WorkSessionEntity
-import com.worktime.pro.data.db.toDayTotals
 import com.worktime.pro.domain.engine.PunchMoment
 import com.worktime.pro.domain.engine.PunchPairing
 import com.worktime.pro.domain.engine.PunchTimelineValidator
 import com.worktime.pro.domain.engine.WorkTimeCalculator
 import com.worktime.pro.domain.engine.WorkRuleConfig
-import com.worktime.pro.domain.model.Confidence
-import com.worktime.pro.domain.model.DaySummary
 import com.worktime.pro.domain.model.PunchSource
 import com.worktime.pro.domain.model.PunchType
+import com.worktime.pro.domain.model.SessionType
 import com.worktime.pro.util.Constants
 import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.LocalDateTime
 import java.time.LocalTime
 
-/** 新增打卡事件的参数（确认页提交/手动录入均走此结构） */
+/** 新增打卡事件的参数（手动录入/快速打卡/习惯打卡均走此结构） */
 data class PunchInput(
     val workDate: String,
     val punchType: PunchType,
     val punchTime: LocalDateTime,
     val source: PunchSource,
-    val imagePath: String? = null,
-    val ocrRawText: String? = null,
-    val confidence: Confidence? = null,
     val remark: String? = null
 )
 
@@ -56,27 +50,7 @@ class WorkTimeRepository(
 
     fun observeSessions(date: String): Flow<List<WorkSessionEntity>> = sessionDao.getByDate(date)
 
-    fun observeDaySummary(date: String): Flow<DaySummary> =
-        sessionDao.getByDate(date).map { sessions ->
-            val events = punchDao.getByDateOnce(date)
-            val totals = sessions.toDayTotals()
-            DaySummary(
-                date = date,
-                regularMinutes = totals.regularMinutes,
-                overtimeMinutes = totals.overtimeMinutes,
-                firstWorkStart = events.firstOrNull { it.punchType == PunchType.WORK_START.name }
-                    ?.let { TimeFormatter.formatTime(fromMillis(it.punchTime).toLocalTime()) },
-                lastWorkEnd = events.lastOrNull { it.punchType == PunchType.WORK_END.name }
-                    ?.let { TimeFormatter.formatTime(fromMillis(it.punchTime).toLocalTime()) },
-                firstOtStart = events.firstOrNull { it.punchType == PunchType.OT_START.name }
-                    ?.let { TimeFormatter.formatTime(fromMillis(it.punchTime).toLocalTime()) },
-                lastOtEnd = events.lastOrNull { it.punchType == PunchType.OT_END.name }
-                    ?.let { TimeFormatter.formatTime(fromMillis(it.punchTime).toLocalTime()) },
-                recordCount = events.size
-            )
-        }
-
-    /** 月历一次聚合查询，替代逐格 observeDaySummary */
+    /** 月历一次聚合查询，一次覆盖整月正常/加班分钟 */
     fun observeDayAggregates(start: String, end: String): Flow<List<DayAggregate>> =
         sessionDao.observeDayAggregates(start, end)
 
@@ -119,7 +93,7 @@ class WorkTimeRepository(
     /** 修改已有打卡时间；同样走时间线校验，避免编辑后与其他段重叠 */
     suspend fun updatePunch(event: PunchEventEntity): Result<Unit> = writeMutex.withLock {
         runCatching {
-            val type = PunchType.entries.firstOrNull { it.name == event.punchType }
+            val type = PunchType.fromName(event.punchType)
                 ?: throw IllegalArgumentException("未知打卡类型")
             validateDay(
                 date = event.workDate,
@@ -139,7 +113,7 @@ class WorkTimeRepository(
         val existing = punchDao.getByDateOnce(date)
             .filter { excludeEventId == null || it.id != excludeEventId }
             .mapNotNull { event ->
-                val type = PunchType.entries.firstOrNull { it.name == event.punchType }
+                val type = PunchType.fromName(event.punchType)
                     ?: return@mapNotNull null
                 PunchMoment(type, event.punchTime)
             }
@@ -159,9 +133,6 @@ class WorkTimeRepository(
                 punchType = input.punchType.name,
                 punchTime = input.punchTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
                 source = input.source.name,
-                imagePath = input.imagePath,
-                ocrRawText = input.ocrRawText,
-                confidence = input.confidence?.name,
                 remark = input.remark,
                 createTime = now,
                 updateTime = now
@@ -236,11 +207,11 @@ class WorkTimeRepository(
 
         // 正常工作段：为每个开始事件匹配其后最近的未用结束事件
         for ((start, end) in PunchPairing.pair(starts, ends) { it.punchTime }) {
-            val result = calculator.calculate(fromMillis(start.punchTime), fromMillis(end.punchTime), rule)
+            val result = calculator.calculate(TimeFormatter.millisToLocalDateTime(start.punchTime), TimeFormatter.millisToLocalDateTime(end.punchTime), rule)
             sessionDao.insert(
                 WorkSessionEntity(
                     workDate = date,
-                    sessionType = "REGULAR",
+                    sessionType = SessionType.REGULAR.name,
                     startTime = start.punchTime,
                     endTime = end.punchTime,
                     workMinutes = result.workMinutes,
@@ -259,12 +230,12 @@ class WorkTimeRepository(
         // 独立加班段
         for ((otStart, otEnd) in PunchPairing.pair(otStarts, otEnds) { it.punchTime }) {
             val result = calculator.calculateOvertimeSegment(
-                fromMillis(otStart.punchTime), fromMillis(otEnd.punchTime), rule
+                TimeFormatter.millisToLocalDateTime(otStart.punchTime), TimeFormatter.millisToLocalDateTime(otEnd.punchTime), rule
             )
             sessionDao.insert(
                 WorkSessionEntity(
                     workDate = date,
-                    sessionType = "OVERTIME",
+                    sessionType = SessionType.OVERTIME.name,
                     startTime = otStart.punchTime,
                     endTime = otEnd.punchTime,
                     workMinutes = result.workMinutes,
@@ -280,9 +251,6 @@ class WorkTimeRepository(
             )
         }
     }
-
-    private fun fromMillis(millis: Long): LocalDateTime =
-        java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
 
     private fun com.worktime.pro.data.db.WorkRuleEntity.toConfig() = WorkRuleConfig(
         startTime = LocalTime.parse(startTime),

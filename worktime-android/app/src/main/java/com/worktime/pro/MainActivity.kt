@@ -110,9 +110,9 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
                     val currentRoute by navController.currentBackStackEntryAsState()
-                    // 记录最后停留的主 Tab，拍照/手动录入保存后回到来源页
+                    // 记录最后停留的主 Tab，手动录入保存后回到来源页
                     var lastMainTab by remember { mutableStateOf("today") }
-                    // 仅三个主 Tab 显示底部导航，进入子页面（拍照/详情/设置等）时隐藏
+                    // 仅三个主 Tab 显示底部导航，进入子页面（详情/设置等）时隐藏
                     val showBottomBar = currentRoute?.destination?.route in TAB_ROUTES
                     // 宽屏与横屏把 Tab 收进侧边导航：手机横屏与平板纵向高度紧张，底部栏会挤压内容
                     val useRail = showBottomBar && rememberAppWindowSize() != AppWindowSize.COMPACT
@@ -211,7 +211,7 @@ private fun AppNavHost(
 ) {
     // rememberUpdatedState 保证导航图里的旧 lambda 也能读到最新来源 Tab
     val originTab by rememberUpdatedState(lastMainTab)
-    // 保存后回到进入拍照/手动录入前的主 Tab，避免从今日页跳回首页
+    // 保存后回到进入手动录入前的主 Tab，避免从今日页跳回首页
     val popToOriginTab: () -> Unit = {
         if (!navController.popBackStack(originTab, inclusive = false)) {
             navController.popBackStack("today", inclusive = false)
