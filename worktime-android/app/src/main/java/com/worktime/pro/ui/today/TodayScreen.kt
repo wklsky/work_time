@@ -66,8 +66,10 @@ import com.worktime.pro.data.db.toDayTotals
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
+import com.worktime.pro.ui.components.PunchStamp
 import com.worktime.pro.ui.components.TimePickerDialog
 import com.worktime.pro.ui.sourceLabel
+import com.worktime.pro.ui.theme.StampVermillion
 import com.worktime.pro.ui.typeLabel
 import com.worktime.pro.util.TimeFormatter
 import java.time.Duration
@@ -98,6 +100,8 @@ fun TodayScreen(
     val manualQuickTimes = remember { mutableStateMapOf<PunchType, LocalTime>() }
     val quickTime = manualQuickTimes[quickType] ?: currentMinute
     var showQuickTimePicker by remember { mutableStateOf(false) }
+    // 打卡成功后浮现金章确认
+    var stampInfo by remember { mutableStateOf<StampInfo?>(null) }
 
     val live = computeLiveTotals(state.events, state.sessions, now)
     val status = computeTodayStatus(state.events, formatClock(live.liveSeconds))
@@ -313,6 +317,10 @@ fun TodayScreen(
                             if (error == null) {
                                 // 下一段默认回到当前分钟，避免沿用上一段的旧时间
                                 manualQuickTimes.remove(type)
+                                stampInfo = StampInfo(
+                                    type.label,
+                                    TimeFormatter.formatTime(time, use24Hour)
+                                )
                             }
                             Toast.makeText(
                                 context,
@@ -324,8 +332,8 @@ fun TodayScreen(
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = MaterialTheme.shapes.medium,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                        containerColor = StampVermillion,
+                        contentColor = Color.White
                     )
                 ) {
                     Text(
@@ -445,7 +453,6 @@ fun TodayScreen(
             title = "打卡时刻",
             subtitle = "今天 · ${TimeFormatter.weekdayCN(state.today)}",
             initialTime = quickTime,
-            use24Hour = use24Hour,
             onDismiss = { showQuickTimePicker = false },
             onConfirm = { picked ->
                 manualQuickTimes[quickType] = picked
@@ -453,7 +460,21 @@ fun TodayScreen(
             }
         )
     }
+
+    stampInfo?.let { stamp ->
+        PunchStamp(
+            typeLabel = stamp.typeLabel,
+            timeLabel = stamp.timeLabel,
+            onDismiss = { stampInfo = null }
+        )
+    }
 }
+
+/** 打卡盖章确认的内容 */
+private data class StampInfo(
+    val typeLabel: String,
+    val timeLabel: String
+)
 
 /** 正常 / 加班累计，色点即时间带图例 */
 @Composable

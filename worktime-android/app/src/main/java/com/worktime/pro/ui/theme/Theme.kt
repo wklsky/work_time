@@ -40,6 +40,12 @@ private val Surface = Color(0xFFFFFFFF)
 private val Muted = Color(0xFF8492A6)
 
 /**
+ * 印章朱红：打卡「盖章留痕」的专属强调色。
+ * 只用于打卡主按钮与盖章确认瞬间，不参与日常信息层级，避免与「加班橙」语义混淆。
+ */
+val StampVermillion = Color(0xFFC23B2A)
+
+/**
  * 浅色配色：把 6 色映射到 Material3 槽位。
  * 约定 secondary=工时蓝、tertiary=加班橙，页面组件据此区分正常工时与加班，避免各处硬编码色值。
  */
