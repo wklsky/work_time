@@ -54,8 +54,6 @@ import androidx.navigation.compose.rememberNavController
 import com.worktime.pro.ui.LocalRepository
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
-import com.worktime.pro.ui.camera.CameraScreen
-import com.worktime.pro.ui.camera.ConfirmScreen
 import com.worktime.pro.ui.components.AdaptiveContent
 import com.worktime.pro.ui.components.AppWindowSize
 import com.worktime.pro.ui.components.rememberAppWindowSize
@@ -66,7 +64,6 @@ import com.worktime.pro.ui.mine.MineScreen
 import com.worktime.pro.ui.rules.WorkRulesScreen
 import com.worktime.pro.ui.settings.SettingsDataScreen
 import com.worktime.pro.ui.settings.SettingsDisplayScreen
-import com.worktime.pro.ui.settings.SettingsMappingScreen
 import com.worktime.pro.ui.settings.SettingsPunchScreen
 import com.worktime.pro.ui.settings.SettingsReminderScreen
 import com.worktime.pro.ui.settings.SettingsScreen
@@ -234,7 +231,6 @@ private fun AppNavHost(
             HomeScreen(
                 factory = factory,
                 onOpenDay = { date -> navController.navigate("day/$date") },
-                onOpenCamera = { navController.navigate("camera") },
                 onOpenManual = { navController.navigate("manual") },
                 onOpenHabits = { navController.navigate("habits") }
             )
@@ -242,7 +238,6 @@ private fun AppNavHost(
         composable("today") {
             TodayScreen(
                 factory = factory,
-                onOpenCamera = { navController.navigate("camera") },
                 onOpenManual = { navController.navigate("manual") },
                 onOpenDayDetail = { date -> navController.navigate("day/$date") }
             )
@@ -275,22 +270,6 @@ private fun AppNavHost(
                 onBack = { navController.popBackStack() }
             )
         }
-        composable("camera") {
-            CameraScreen(
-                onCaptured = { bitmap ->
-                    factory.sharedCameraViewModel.setPendingBitmap(bitmap)
-                    navController.navigate("confirm")
-                },
-                onClose = { navController.popBackStack() }
-            )
-        }
-        composable("confirm") {
-            ConfirmScreen(
-                factory = factory,
-                onSaved = popToOriginTab,
-                onRetake = { navController.popBackStack() }
-            )
-        }
         composable("day/{date}") { backStackEntry ->
             val date = backStackEntry.arguments?.getString("date").orEmpty()
             DayDetailScreen(
@@ -314,7 +293,6 @@ private fun AppNavHost(
                 onOpenPunch = { navController.navigate("settings/punch") },
                 onOpenDisplay = { navController.navigate("settings/display") },
                 onOpenReminder = { navController.navigate("settings/reminder") },
-                onOpenMapping = { navController.navigate("settings/mapping") },
                 onOpenData = { navController.navigate("settings/data") }
             )
         }
@@ -335,12 +313,6 @@ private fun AppNavHost(
         }
         composable("settings/reminder") {
             SettingsReminderScreen(
-                factory = factory,
-                onBack = { navController.popBackStack() }
-            )
-        }
-        composable("settings/mapping") {
-            SettingsMappingScreen(
                 factory = factory,
                 onBack = { navController.popBackStack() }
             )

@@ -28,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -74,7 +73,6 @@ private const val GRID_CELLS = 42
 fun HomeScreen(
     factory: ViewModelFactory,
     onOpenDay: (String) -> Unit,
-    onOpenCamera: () -> Unit,
     onOpenManual: () -> Unit,
     onOpenHabits: () -> Unit
 ) {
@@ -164,7 +162,7 @@ fun HomeScreen(
 
         if (attendanceDays == 0 && month == YearMonth.now()) {
             Text(
-                "本月还没有记录，拍照或手动录入开始",
+                "本月还没有记录，手动录入开始",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -291,16 +289,12 @@ fun HomeScreen(
             }
         }
 
-        // 底部操作栏：主操作墨蓝填充，次操作描边
+        // 底部操作栏：手动录入主操作
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.Center
         ) {
-            Button(onClick = onOpenCamera, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("拍照识别", modifier = Modifier.padding(start = 6.dp))
-            }
-            OutlinedButton(onClick = onOpenManual, modifier = Modifier.weight(1f)) {
+            Button(onClick = onOpenManual, modifier = Modifier.fillMaxWidth(0.8f)) {
                 Text("手动录入")
             }
         }

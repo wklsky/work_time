@@ -5,9 +5,6 @@
  */
 package com.worktime.pro.ui.settings
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
@@ -57,7 +53,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-/** 打卡与识别：默认动作、OCR 填充、照片保存，以及工作规则与习惯打卡两个三级入口 */
+/** 打卡设置：默认动作以及工作规则与习惯打卡两个三级入口 */
 @Composable
 fun SettingsPunchScreen(
     factory: ViewModelFactory,
@@ -67,24 +63,12 @@ fun SettingsPunchScreen(
 ) {
     val viewModel: SettingsViewModel = viewModel(factory = factory)
     val settings by viewModel.settingsFlow.collectAsState(initial = AppSettings())
-    val context = LocalContext.current
     val currentDefaultPunch = PunchType.entries.firstOrNull { it.name == settings.defaultPunchType }
         ?: PunchType.WORK_START
 
-    // Android 8–9 写公共相册需要存储权限；拒绝时仅保留应用内凭证
-    val galleryPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            viewModel.setGallerySaveEnabled(true)
-        } else {
-            Toast.makeText(context, "未授予存储权限，照片只会保存在应用内", Toast.LENGTH_LONG).show()
-        }
-    }
-
     SettingsPage(
-        title = "打卡与识别",
-        subtitle = "默认动作、识别填充与照片保存",
+        title = "打卡设置",
+        subtitle = "默认动作与规则管理",
         onBack = onBack
     ) {
         SettingsGroupCard {
@@ -103,33 +87,6 @@ fun SettingsPunchScreen(
                     label = { Text("加班到") }
                 )
             }
-        }
-
-        SettingsGroupCard {
-            SwitchRow(
-                title = "OCR 自动填充",
-                description = "开启后识别结果自动填入确认页，仍需人工确认才入库",
-                checked = settings.ocrAutoFill,
-                onCheckedChange = viewModel::setOcrAutoFill
-            )
-            ItemDivider()
-            SwitchRow(
-                title = "保存到系统相册",
-                description = "确认保存后写入 Pictures/工时助手；备份不含照片",
-                checked = settings.gallerySaveEnabled,
-                onCheckedChange = { enabled ->
-                    val needsPermission = Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.WRITE_EXTERNAL_STORAGE
-                        ) != PackageManager.PERMISSION_GRANTED
-                    if (enabled && needsPermission) {
-                        galleryPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    } else {
-                        viewModel.setGallerySaveEnabled(enabled)
-                    }
-                }
-            )
         }
 
         SettingsGroupCard {
@@ -365,36 +322,6 @@ private fun ReminderThreshold(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
-}
-
-/** 考勤机状态映射：独立成页后直接铺开 0-9 状态位，不再折叠，省掉一次点击 */
-@Composable
-fun SettingsMappingScreen(
-    factory: ViewModelFactory,
-    onBack: () -> Unit
-) {
-    val viewModel: SettingsViewModel = viewModel(factory = factory)
-    val settings by viewModel.settingsFlow.collectAsState(initial = AppSettings())
-
-    SettingsPage(
-        title = "考勤机状态映射",
-        subtitle = "状态列数字决定识别出的打卡类型",
-        onBack = onBack
-    ) {
-        SettingsGroupCard {
-            Text(
-                "识别考勤机截图时，状态列的数字按这里的映射判定打卡类型；留空表示不识别该状态。",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            StatusMappingEditor(
-                raw = settings.statusMapping,
-                onChanged = { viewModel.setStatusMapping(it) },
-                onReset = { viewModel.resetStatusMapping() }
-            )
-        }
-    }
 }
 
 /** 数据管理：导出与导入分开两卡，危险操作独立成区并用 error 色提示 */

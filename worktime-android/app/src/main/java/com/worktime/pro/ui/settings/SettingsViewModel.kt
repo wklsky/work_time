@@ -28,27 +28,9 @@ class SettingsViewModel(
         viewModelScope.launch { settings.setOvertimeShade(enabled) }
     }
 
-    fun setOcrAutoFill(enabled: Boolean) {
-        viewModelScope.launch { settings.setOcrAutoFill(enabled) }
-    }
-
     /** 今日页两种打卡动作都可用时的默认动作，只接受上班/加班到 */
     fun setDefaultPunchType(type: PunchType) {
         viewModelScope.launch { settings.setDefaultPunchType(type.name) }
-    }
-
-    fun setGallerySaveEnabled(enabled: Boolean) {
-        viewModelScope.launch { settings.setGallerySaveEnabled(enabled) }
-    }
-
-    /** 保存用户自定义的考勤机状态映射，传入序列化字符串 */
-    fun setStatusMapping(value: String) {
-        viewModelScope.launch { settings.setStatusMapping(value) }
-    }
-
-    /** 恢复默认状态映射：写入空串，识别时自动回退到内置编码 */
-    fun resetStatusMapping() {
-        viewModelScope.launch { settings.setStatusMapping("") }
     }
 
     fun setThemeMode(mode: com.worktime.pro.data.datastore.ThemeMode) {

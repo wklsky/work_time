@@ -47,14 +47,8 @@ data class AppSettings(
     /** 默认 24 小时制，符合工时记录场景对精确时间的需求 */
     val timeFormat: String = TimeFormatMode.HOUR_24.value,
     val showOvertimeShade: Boolean = true,
-    val defaultInputMode: String = "OCR",
     /** 今日页「打卡时刻」在上班/加班两种动作都可用时默认选中的动作 */
     val defaultPunchType: String = PunchType.WORK_START.name,
-    val ocrAutoFill: Boolean = true,
-    /** 确认保存后是否同时写入系统相册（备份永远不含照片） */
-    val gallerySaveEnabled: Boolean = true,
-    /** 用户自定义的考勤机状态映射，序列化字符串；空串表示使用默认映射 */
-    val statusMapping: String = "",
     /** 默认白天（浅色）模式，界面更明亮清晰 */
     val themeMode: String = ThemeMode.LIGHT.value,
     /** 习惯打卡列表，序列化字符串；空串表示无习惯 */
@@ -79,11 +73,7 @@ class SettingsDataStore(private val context: Context) {
         val CALENDAR_DISPLAY = stringPreferencesKey("calendar_display_mode")
         val TIME_FORMAT = stringPreferencesKey("time_format")
         val OVERTIME_SHADE = booleanPreferencesKey("show_overtime_shade")
-        val DEFAULT_INPUT = stringPreferencesKey("default_input_mode")
         val DEFAULT_PUNCH_TYPE = stringPreferencesKey("default_punch_type")
-        val OCR_AUTO_FILL = booleanPreferencesKey("ocr_auto_fill")
-        val GALLERY_SAVE = booleanPreferencesKey("gallery_save_enabled")
-        val STATUS_MAPPING = stringPreferencesKey("status_mapping")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val HABITS = stringPreferencesKey("punch_habits")
         val CUSTOM_THEME = booleanPreferencesKey("custom_theme_enabled")
@@ -101,11 +91,7 @@ class SettingsDataStore(private val context: Context) {
             calendarDisplayMode = prefs[Keys.CALENDAR_DISPLAY] ?: CalendarDisplayMode.WORK_TIME.value,
             timeFormat = prefs[Keys.TIME_FORMAT] ?: TimeFormatMode.HOUR_24.value,
             showOvertimeShade = prefs[Keys.OVERTIME_SHADE] ?: true,
-            defaultInputMode = prefs[Keys.DEFAULT_INPUT] ?: "OCR",
             defaultPunchType = prefs[Keys.DEFAULT_PUNCH_TYPE] ?: PunchType.WORK_START.name,
-            ocrAutoFill = prefs[Keys.OCR_AUTO_FILL] ?: true,
-            gallerySaveEnabled = prefs[Keys.GALLERY_SAVE] ?: true,
-            statusMapping = prefs[Keys.STATUS_MAPPING] ?: "",
             themeMode = prefs[Keys.THEME_MODE] ?: ThemeMode.LIGHT.value,
             habits = prefs[Keys.HABITS] ?: "",
             customThemeEnabled = prefs[Keys.CUSTOM_THEME] ?: false,
@@ -128,23 +114,11 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setOvertimeShade(enabled: Boolean) =
         context.dataStore.edit { it[Keys.OVERTIME_SHADE] = enabled }
 
-    suspend fun setOcrAutoFill(enabled: Boolean) =
-        context.dataStore.edit { it[Keys.OCR_AUTO_FILL] = enabled }
-
-    suspend fun setDefaultInputMode(mode: String) =
-        context.dataStore.edit { it[Keys.DEFAULT_INPUT] = mode }
-
     /** 只接受上班/加班到两种起始动作，其余值一律回落到上班，避免脏数据写坏今日页默认值 */
     suspend fun setDefaultPunchType(value: String) {
         val safe = if (value == PunchType.OT_START.name) value else PunchType.WORK_START.name
         context.dataStore.edit { it[Keys.DEFAULT_PUNCH_TYPE] = safe }
     }
-
-    suspend fun setGallerySaveEnabled(enabled: Boolean) =
-        context.dataStore.edit { it[Keys.GALLERY_SAVE] = enabled }
-
-    suspend fun setStatusMapping(value: String) =
-        context.dataStore.edit { it[Keys.STATUS_MAPPING] = value }
 
     suspend fun setThemeMode(mode: String) =
         context.dataStore.edit { it[Keys.THEME_MODE] = mode }

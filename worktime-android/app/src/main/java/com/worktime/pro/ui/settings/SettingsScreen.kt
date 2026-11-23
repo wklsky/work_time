@@ -7,7 +7,6 @@ package com.worktime.pro.ui.settings
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.TouchApp
@@ -35,7 +34,6 @@ fun SettingsScreen(
     onOpenPunch: () -> Unit,
     onOpenDisplay: () -> Unit,
     onOpenReminder: () -> Unit,
-    onOpenMapping: () -> Unit,
     onOpenData: () -> Unit
 ) {
     val viewModel: SettingsViewModel = viewModel(factory = factory)
@@ -67,8 +65,8 @@ fun SettingsScreen(
         SettingsGroupCard {
             SettingsEntryRow(
                 icon = Icons.Filled.TouchApp,
-                title = "打卡与识别",
-                summary = "默认${currentDefaultPunch.label} · OCR ${if (settings.ocrAutoFill) "自动填充" else "手动确认"}",
+                title = "打卡设置",
+                summary = "默认${currentDefaultPunch.label}",
                 onClick = onOpenPunch
             )
             ItemDivider()
@@ -91,15 +89,8 @@ fun SettingsScreen(
             )
         }
 
-        SectionLabel("数据与高级")
+        SectionLabel("数据管理")
         SettingsGroupCard {
-            SettingsEntryRow(
-                icon = Icons.Filled.Numbers,
-                title = "考勤机状态映射",
-                summary = if (settings.statusMapping.isBlank()) "内置编码" else "已自定义编码",
-                onClick = onOpenMapping
-            )
-            ItemDivider()
             SettingsEntryRow(
                 icon = Icons.Filled.Storage,
                 title = "数据管理",

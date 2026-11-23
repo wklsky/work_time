@@ -1,10 +1,6 @@
 # 保留 Room 实体与 DAO 的注解信息，避免反射型DAO混淆
 -keep class com.worktime.pro.data.db.** { *; }
 
-# ML Kit 模型相关类保留
--keep class com.google.mlkit.** { *; }
--dontwarn com.google.mlkit.**
-
 # Kotlin 协程
 -dontwarn kotlinx.coroutines.**
 
@@ -22,14 +18,6 @@
 -keepclasseswithmembers class com.worktime.pro.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
-
-# Coil 图片加载库
--dontwarn coil.**
--keep class coil.** { *; }
-
-# CameraX
--keep class androidx.camera.** { *; }
--dontwarn androidx.camera.**
 
 # 优化配置
 -optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*

@@ -28,24 +28,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,7 +44,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.worktime.pro.domain.model.PunchType
-import com.worktime.pro.domain.ocr.StatusMapping
 
 /**
  * 设置页通用骨架：固定页头 + 可滚动内容。
@@ -294,79 +283,4 @@ internal fun ColorDot(color: Color) {
             .background(color)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
     )
-}
-
-/**
- * 状态映射编辑器：考勤机状态列数字（0-9）→ 打卡类型。
- * raw 为空时展示内置默认映射，用户改动后才写入自定义值，避免默认值被固化进偏好。
- */
-@Composable
-internal fun StatusMappingEditor(
-    raw: String,
-    onChanged: (String) -> Unit,
-    onReset: () -> Unit
-) {
-    val mapping = if (raw.isBlank()) StatusMapping.DEFAULT else StatusMapping.deserialize(raw)
-    // 只展示 0-9 状态位，覆盖常见考勤机编码；每行用下拉选择，避免小屏溢出
-    val statusCodes = (0..9).map { it.toString() }
-
-    statusCodes.forEach { code ->
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("状态 $code", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            StatusTypeDropdown(
-                selected = mapping[code],
-                onSelected = { type ->
-                    val updated = mapping.toMutableMap()
-                    if (type == null) updated.remove(code) else updated[code] = type
-                    onChanged(StatusMapping.serialize(updated))
-                }
-            )
-        }
-    }
-
-    TextButton(onClick = onReset, modifier = Modifier.padding(horizontal = 16.dp)) {
-        Text("恢复默认映射（0上班 1下班 4加班到 5加班退）")
-    }
-}
-
-/** 状态位 → 打卡类型下拉选择 */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun StatusTypeDropdown(
-    selected: PunchType?,
-    onSelected: (PunchType?) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val options: List<PunchType?> = buildList {
-        add(null)
-        addAll(PunchType.entries)
-    }
-
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = selected?.label ?: "无",
-            onValueChange = {},
-            readOnly = true,
-            singleLine = true,
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            // 不用固定宽度：窄屏（320dp）与大字号下固定 128dp 会把左侧「状态 N」挤掉
-            modifier = Modifier.menuAnchor().widthIn(min = 96.dp, max = 168.dp)
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { type ->
-                DropdownMenuItem(
-                    text = { Text(type?.label ?: "无") },
-                    onClick = {
-                        onSelected(type)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
 }

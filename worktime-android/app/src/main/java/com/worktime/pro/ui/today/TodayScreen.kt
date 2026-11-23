@@ -28,12 +28,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -81,7 +79,6 @@ import java.util.Locale
 @Composable
 fun TodayScreen(
     factory: ViewModelFactory,
-    onOpenCamera: () -> Unit,
     onOpenManual: () -> Unit,
     onOpenDayDetail: (String) -> Unit
 ) {
@@ -401,23 +398,11 @@ fun TodayScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        // 其他录入入口：拍照识别是产品主路径，手动录入作为补充
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FilledTonalButton(
-                onClick = onOpenCamera,
-                modifier = Modifier.weight(1f).height(48.dp)
-            ) {
-                Icon(
-                    Icons.Filled.PhotoCamera,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text("拍照识别")
-            }
-            OutlinedButton(
+        // 手动录入入口
+        Row(horizontalArrangement = Arrangement.Center) {
+            Button(
                 onClick = onOpenManual,
-                modifier = Modifier.weight(1f).height(48.dp)
+                modifier = Modifier.fillMaxWidth(0.8f).height(48.dp)
             ) {
                 Text("手动录入")
             }
