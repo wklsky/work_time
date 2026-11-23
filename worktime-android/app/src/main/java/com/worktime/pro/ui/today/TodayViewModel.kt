@@ -106,28 +106,29 @@ class TodayViewModel(
 
     /**
      * 待撤销的删除：删除后立即落库，但保留快照供 Snackbar「撤销」在超时前恢复。
+     * 业务规则：完整加班段（开始+结束）按组删除，快照为多条，撤销时一次性还原整段。
      * 数据一致性与撤销安全性都交给「立即删除 + 撤销重写」，避免「延迟落库」在页面退出后漏删。
      */
-    private val _deletedForUndo = MutableStateFlow<PunchEventEntity?>(null)
-    val deletedForUndo: StateFlow<PunchEventEntity?> = _deletedForUndo.asStateFlow()
+    private val _deletedForUndo = MutableStateFlow<List<PunchEventEntity>>(emptyList())
+    val deletedForUndo: StateFlow<List<PunchEventEntity>> = _deletedForUndo.asStateFlow()
 
     fun deleteEvent(event: PunchEventEntity) {
         viewModelScope.launch {
-            repository.deletePunch(event)
-            _deletedForUndo.value = event
+            _deletedForUndo.value = repository.deletePunchGroup(event)
         }
     }
 
-    /** 撤销删除：把快照重写成一条新打卡（校验失败时静默保留已删状态） */
+    /** 撤销删除：把快照批量重写成新打卡（校验失败时静默保留已删状态） */
     fun undoDelete() {
-        val event = _deletedForUndo.value ?: return
-        _deletedForUndo.value = null
-        viewModelScope.launch { runCatching { repository.addPunch(event.toPunchInput()) } }
+        val deleted = _deletedForUndo.value
+        if (deleted.isEmpty()) return
+        _deletedForUndo.value = emptyList()
+        viewModelScope.launch { runCatching { repository.addPunches(deleted.map { it.toPunchInput() }) } }
     }
 
     /** 撤销窗口超时后清除快照，删除正式生效 */
     fun commitDelete() {
-        _deletedForUndo.value = null
+        _deletedForUndo.value = emptyList()
     }
 
     private fun PunchEventEntity.toPunchInput(): PunchInput = PunchInput(

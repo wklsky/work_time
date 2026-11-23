@@ -162,12 +162,8 @@ fun TodayScreen(
     ).toMinutes()
 
     val lastEvent = state.events.maxByOrNull { it.punchTime }
+    // 距计划下班的倒计时只计算不展示（planEndMinutes 仍用于超时态着色），文案只反映打卡流水本身
     val contextLine = when {
-        onClock && planEndMinutes > 0 ->
-            "距计划下班 ${TimeFormatter.formatDuration(planEndMinutes.toInt())}"
-        onClock && planEndMinutes < 0 ->
-            "已超计划下班 ${TimeFormatter.formatDuration((-planEndMinutes).toInt())}"
-        onClock -> "已到计划下班时间"
         state.events.isEmpty() -> "今天还没开始记录"
         lastEvent != null ->
             "最近记录 ${viewModel.formatTime(lastEvent, use24Hour)} · ${lastEvent.typeLabel()}"
@@ -316,9 +312,16 @@ fun TodayScreen(
 
     // 删除撤销：立即落库 + Snackbar 提供撤销窗口，超时或点撤销后清除快照
     LaunchedEffect(deletedEvent) {
-        val event = deletedEvent ?: return@LaunchedEffect
+        val deleted = deletedEvent
+        if (deleted.isEmpty()) return@LaunchedEffect
+        // 完整加班段按组删除，一次操作移除开始与结束两条记录，文案需说明范围
+        val message = if (deleted.size == 1) {
+            "已删除「${deleted.first().typeLabel()}」"
+        } else {
+            "已删除整段加班（含开始与结束 ${deleted.size} 条记录）"
+        }
         val result = snackbarHostState.showSnackbar(
-            message = "已删除「${event.typeLabel()}」",
+            message = message,
             actionLabel = "撤销",
             duration = SnackbarDuration.Short
         )
@@ -399,12 +402,6 @@ private fun TodayTimeCard(
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 1.sp
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "计划下班 ${TimeFormatter.formatTime(plannedShift.end, use24Hour)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = muted
                 )
             }
 

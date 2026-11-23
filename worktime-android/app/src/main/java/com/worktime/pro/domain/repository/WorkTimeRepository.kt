@@ -5,6 +5,7 @@
  */
 package com.worktime.pro.domain.repository
 
+import com.worktime.pro.data.datastore.PunchHabit
 import com.worktime.pro.data.db.DayAggregate
 import com.worktime.pro.data.db.DayPunchCounts
 import com.worktime.pro.data.db.PunchEventDao
@@ -25,6 +26,7 @@ import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 
@@ -90,6 +92,41 @@ class WorkTimeRepository(
         }
     }
 
+    /**
+     * 把习惯里的固定班次写入指定日期，供首页（今天）与日详情（历史某天）共用。
+     * 业务规则：先做完整时间线校验（习惯自身 + 当日已有记录；覆盖时旧记录将删除故不参与），
+     * 校验通过后才删除/写入并重算一次，覆盖场景不会逐条删除反复重算，也不会出现删完又校验失败的中间态。
+     */
+    suspend fun applyHabit(date: LocalDate, habit: PunchHabit, overwrite: Boolean): Result<Unit> = writeMutex.withLock {
+        runCatching {
+            val dateKey = TimeFormatter.formatDateKey(date)
+            val inputs = habit.times.mapNotNull { (typeName, timeValue) ->
+                runCatching {
+                    PunchInput(
+                        workDate = dateKey,
+                        punchType = PunchType.valueOf(typeName),
+                        punchTime = LocalDateTime.of(date, LocalTime.parse(timeValue)),
+                        source = PunchSource.MANUAL,
+                        remark = "习惯：${habit.name}"
+                    )
+                }.getOrNull()
+            }
+            if (inputs.isEmpty()) throw IllegalArgumentException("习惯中没有有效的打卡时间")
+            val existing = if (overwrite) emptyList() else {
+                punchDao.getByDateOnce(dateKey).mapNotNull { event ->
+                    PunchType.fromName(event.punchType)?.let { PunchMoment(it, event.punchTime) }
+                }
+            }
+            PunchTimelineValidator.validate(existing + inputs.map { it.toMoment() })
+                ?.let { throw IllegalArgumentException(it) }
+            if (overwrite) {
+                punchDao.getByDateOnce(dateKey).forEach { punchDao.delete(it) }
+            }
+            inputs.forEach { insertEvent(it) }
+            recalculate(dateKey)
+        }
+    }
+
     /** 修改已有打卡时间；同样走时间线校验，避免编辑后与其他段重叠 */
     suspend fun updatePunch(event: PunchEventEntity): Result<Unit> = writeMutex.withLock {
         runCatching {
@@ -98,20 +135,47 @@ class WorkTimeRepository(
             validateDay(
                 date = event.workDate,
                 newMoments = listOf(PunchMoment(type, event.punchTime)),
-                excludeEventId = event.id
+                excludeEventIds = setOf(event.id)
             )?.let { throw IllegalArgumentException(it) }
             punchDao.update(event.copy(updateTime = System.currentTimeMillis()))
             recalculate(event.workDate)
         }
     }
 
+    /**
+     * 整段编辑一条加班：同时更新开始与结束两个端点，只做一次校验、一次重算。
+     * 业务规则：加班段必须整体合法（开始早于结束且不与其他段重叠），分开改两端会出现中间态非法时间线，
+     * 因此把端点合并为一次提交。
+     */
+    suspend fun updateOvertimeSegment(
+        start: PunchEventEntity,
+        end: PunchEventEntity,
+        newStartMillis: Long,
+        newEndMillis: Long
+    ): Result<Unit> = writeMutex.withLock {
+        runCatching {
+            validateDay(
+                date = start.workDate,
+                newMoments = listOf(
+                    PunchMoment(PunchType.OT_START, newStartMillis),
+                    PunchMoment(PunchType.OT_END, newEndMillis)
+                ),
+                excludeEventIds = setOf(start.id, end.id)
+            )?.let { throw IllegalArgumentException(it) }
+            val now = System.currentTimeMillis()
+            punchDao.update(start.copy(punchTime = newStartMillis, updateTime = now))
+            punchDao.update(end.copy(punchTime = newEndMillis, updateTime = now))
+            recalculate(start.workDate)
+        }
+    }
+
     private suspend fun validateDay(
         date: String,
         newMoments: List<PunchMoment>,
-        excludeEventId: Long? = null
+        excludeEventIds: Set<Long> = emptySet()
     ): String? {
         val existing = punchDao.getByDateOnce(date)
-            .filter { excludeEventId == null || it.id != excludeEventId }
+            .filter { it.id !in excludeEventIds }
             .mapNotNull { event ->
                 val type = PunchType.fromName(event.punchType)
                     ?: return@mapNotNull null
@@ -140,9 +204,38 @@ class WorkTimeRepository(
         )
     }
 
+    /**
+     * 按组删除打卡：若目标是加班段（OT_START/OT_END）且已与另一端配对成完整加班，
+     * 则整段两条一并删除；普通打卡或孤立加班端点只删自身。
+     * 业务规则：加班段在重算时依赖两端配对，只删一端会让另一端成为孤儿事件残留在列表里，
+     * 而加班时长同样归零，用户却需要两次删除，故按组操作。
+     * 返回实际删除的事件列表，供撤销恢复。
+     */
+    suspend fun deletePunchGroup(event: PunchEventEntity): List<PunchEventEntity> = writeMutex.withLock {
+        val partner = findOvertimePartner(event)
+        val deleted = listOfNotNull(event, partner)
+        deleted.forEach { punchDao.delete(it) }
+        recalculate(event.workDate)
+        deleted
+    }
+
     suspend fun deletePunch(event: PunchEventEntity) = writeMutex.withLock {
         punchDao.delete(event)
         recalculate(event.workDate)
+    }
+
+    /** 找到与目标加班事件配对的另一端；非加班类型或未配对成段时返回 null */
+    private suspend fun findOvertimePartner(event: PunchEventEntity): PunchEventEntity? {
+        val type = PunchType.fromName(event.punchType) ?: return null
+        if (type != PunchType.OT_START && type != PunchType.OT_END) return null
+        val dayEvents = punchDao.getByDateOnce(event.workDate)
+        val partnerId = PunchPairing.pair(
+            dayEvents.filter { it.punchType == PunchType.OT_START.name },
+            dayEvents.filter { it.punchType == PunchType.OT_END.name }
+        ) { it.punchTime }
+            .firstOrNull { (start, end) -> start.id == event.id || end.id == event.id }
+            ?.let { (start, end) -> if (start.id == event.id) end.id else start.id }
+        return dayEvents.firstOrNull { it.id == partnerId }
     }
 
     /** 查询日期区间内的工时段，供统计汇总与报表导出使用 */
