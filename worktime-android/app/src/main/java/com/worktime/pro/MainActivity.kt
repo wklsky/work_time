@@ -55,6 +55,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.worktime.pro.domain.reminder.ReminderRingService
 import com.worktime.pro.ui.LocalRepository
 import com.worktime.pro.ui.LocalSettings
 import com.worktime.pro.ui.ViewModelFactory
@@ -109,6 +110,12 @@ private fun NavIcon(selected: Boolean, icon: ImageVector, label: String) {
 }
 
 class MainActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        // 用户已打开应用，视为看到了提醒，停止仍在响的闹钟
+        ReminderRingService.stop(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

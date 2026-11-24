@@ -23,7 +23,16 @@ class ReminderReceiver : BroadcastReceiver() {
         val threshold = intent.getIntExtra(ReminderScheduler.EXTRA_THRESHOLD, 0)
         if (threshold <= 0) return
 
-        ReminderNotification.show(context, type, threshold)
+        if (intent.getBooleanExtra(ReminderScheduler.EXTRA_RING, false)) {
+            val ringtoneUri = intent.getStringExtra(ReminderScheduler.EXTRA_RINGTONE).orEmpty()
+            // 后台启动前台服务可能被系统拦截（未授予精确闹钟权限等），失败时退回普通通知
+            val started = runCatching {
+                ReminderRingService.start(context, type, threshold, ringtoneUri)
+            }.isSuccess
+            if (!started) ReminderNotification.show(context, type, threshold)
+        } else {
+            ReminderNotification.show(context, type, threshold)
+        }
 
         val dateKey = intent.getStringExtra(ReminderScheduler.EXTRA_DATE).orEmpty()
         val key = "$dateKey:${type.value}:$threshold"

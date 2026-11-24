@@ -65,7 +65,9 @@ class ReminderCoordinator(
                         triggerAtMillis = plan.triggerAtMillis,
                         type = plan.type,
                         thresholdMinutes = plan.thresholdMinutes,
-                        date = plan.date
+                        date = plan.date,
+                        ring = plan.ring,
+                        ringtoneUri = plan.ringtoneUri
                     )
                 } else {
                     ReminderScheduler.cancel(context)

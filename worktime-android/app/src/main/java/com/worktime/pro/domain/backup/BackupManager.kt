@@ -54,6 +54,9 @@ class BackupManager(
                 put("reminderEnabled", settings.reminderEnabled)
                 put("reminderType", settings.reminderType)
                 put("reminderMinutes", settings.reminderMinutes)
+                put("reminderRingEnabled", settings.reminderRingEnabled)
+                put("reminderRingtoneUri", settings.reminderRingtoneUri)
+                put("reminderRingtoneName", settings.reminderRingtoneName)
             })
         }
         val dir = File(context.filesDir, Constants.BACKUP_DIR).apply { mkdirs() }
@@ -207,6 +210,15 @@ class BackupManager(
             }
             if (saved.has("reminderMinutes")) {
                 settingsDataStore.setReminderMinutes(saved.optInt("reminderMinutes", 420))
+            }
+            if (saved.has("reminderRingEnabled")) {
+                settingsDataStore.setReminderRingEnabled(saved.optBoolean("reminderRingEnabled", true))
+            }
+            if (saved.has("reminderRingtoneUri")) {
+                settingsDataStore.setReminderRingtone(
+                    saved.optString("reminderRingtoneUri"),
+                    saved.optString("reminderRingtoneName")
+                )
             }
             // 换机/恢复后重新允许当天提醒
             settingsDataStore.setLastReminderKey("")

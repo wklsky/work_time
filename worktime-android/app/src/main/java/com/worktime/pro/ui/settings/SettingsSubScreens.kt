@@ -6,8 +6,12 @@
 package com.worktime.pro.ui.settings
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -261,15 +265,37 @@ fun SettingsReminderScreen(
         }
     }
 
+    // 从本地文件里选择铃声；拿持久化读权限，重启后仍能播放
+    val ringtoneLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            val name = queryDisplayName(context, uri)
+            if (settings.reminderRingtoneUri.isNotBlank() &&
+                settings.reminderRingtoneUri != uri.toString()
+            ) {
+                releaseRingtonePermission(context, settings.reminderRingtoneUri)
+            }
+            viewModel.setReminderRingtone(uri.toString(), name)
+            Toast.makeText(context, "已选择铃声：$name", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     SettingsPage(
         title = "提醒",
-        subtitle = "累计工时达标后发送系统通知",
+        subtitle = "累计工时达标后提醒，可选闹钟响铃",
         onBack = onBack
     ) {
         SettingsGroupCard {
             SwitchRow(
                 title = "累计提醒",
-                description = "达到设定时长后发送系统通知，后台可能略有延迟",
+                description = "达到设定时长后提醒，可在下方开启响铃；后台可能略有延迟",
                 checked = settings.reminderEnabled,
                 onCheckedChange = { enabled ->
                     val needsPermission = enabled &&
@@ -298,10 +324,87 @@ fun SettingsReminderScreen(
                         }
                     }
                     ReminderThreshold(settings = settings, onCommit = viewModel::setReminderMinutes)
+                    ItemDivider()
+                    SwitchRow(
+                        title = "响铃提醒",
+                        description = "到点用闹钟音量循环响铃并震动，最多 60 秒；可在通知里停止",
+                        checked = settings.reminderRingEnabled,
+                        onCheckedChange = viewModel::setReminderRingEnabled
+                    )
+                    AnimatedVisibility(visible = settings.reminderRingEnabled) {
+                        Column {
+                            ItemDivider()
+                            SettingRow(
+                                title = "提醒铃声",
+                                description = if (settings.reminderRingtoneUri.isBlank()) {
+                                    "系统默认闹钟 · 点击选择本地音频"
+                                } else {
+                                    "${settings.reminderRingtoneName.ifBlank { "本地音频" }} · 点击更换"
+                                },
+                                onClick = { ringtoneLauncher.launch(arrayOf("audio/*")) },
+                                trailing = {
+                                    if (settings.reminderRingtoneUri.isNotBlank()) {
+                                        TextButton(
+                                            onClick = {
+                                                releaseRingtonePermission(
+                                                    context,
+                                                    settings.reminderRingtoneUri
+                                                )
+                                                viewModel.clearReminderRingtone()
+                                            }
+                                        ) {
+                                            Text("恢复默认")
+                                        }
+                                    } else {
+                                        TextButton(
+                                            onClick = {
+                                                ringtoneLauncher.launch(arrayOf("audio/*"))
+                                            }
+                                        ) {
+                                            Text("选择")
+                                        }
+                                    }
+                                }
+                            )
+                            Text(
+                                "支持选择手机里的音频文件；文件被删除或换机恢复备份后会回退到系统默认铃声。",
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/** 释放不再使用的本地音频读取授权，避免持久化授权越积越多 */
+private fun releaseRingtonePermission(context: Context, uriString: String) {
+    if (uriString.isBlank()) return
+    runCatching {
+        context.contentResolver.releasePersistableUriPermission(
+            Uri.parse(uriString),
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+    }
+}
+
+/** 读取 SAF 文件的显示名，取不到时退回 URI 末段 */
+private fun queryDisplayName(context: Context, uri: Uri): String {
+    val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
+    val name = runCatching {
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) cursor.getString(index) else null
+            } else {
+                null
+            }
+        }
+    }.getOrNull()
+    return name?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment ?: "本地音频"
 }
 
 /** 阈值滑块：拖动过程中只更新本地状态，松手才写库，避免每一帧都触发 DataStore 写入 */

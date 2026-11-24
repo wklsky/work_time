@@ -57,4 +57,16 @@ class SettingsViewModel(
     fun setReminderMinutes(minutes: Int) {
         viewModelScope.launch { settings.setReminderMinutes(minutes) }
     }
+
+    fun setReminderRingEnabled(enabled: Boolean) {
+        viewModelScope.launch { settings.setReminderRingEnabled(enabled) }
+    }
+
+    fun setReminderRingtone(uri: String, name: String) {
+        viewModelScope.launch { settings.setReminderRingtone(uri, name) }
+    }
+
+    fun clearReminderRingtone() {
+        viewModelScope.launch { settings.clearReminderRingtone() }
+    }
 }

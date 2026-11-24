@@ -81,7 +81,12 @@ fun SettingsScreen(
                 icon = Icons.Filled.Notifications,
                 title = "提醒",
                 summary = if (settings.reminderEnabled) {
-                    "${currentReminderType.label} · ${TimeFormatter.formatDuration(settings.reminderMinutes)}"
+                    buildString {
+                        append(currentReminderType.label)
+                        append(" · ")
+                        append(TimeFormatter.formatDuration(settings.reminderMinutes))
+                        if (settings.reminderRingEnabled) append(" · 响铃")
+                    }
                 } else {
                     "未开启"
                 },

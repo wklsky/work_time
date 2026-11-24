@@ -98,6 +98,12 @@ data class AppSettings(
     val reminderEnabled: Boolean = false,
     val reminderType: String = ReminderType.OVERTIME.value,
     val reminderMinutes: Int = 420,
+    /** 到点用闹钟音量循环响铃并震动，而不是只发一条普通通知 */
+    val reminderRingEnabled: Boolean = true,
+    /** 自定义铃声的 content URI；空串表示使用系统默认闹钟铃声 */
+    val reminderRingtoneUri: String = "",
+    /** 自定义铃声的显示名，仅用于设置页展示 */
+    val reminderRingtoneName: String = "",
     /** 最近一次已提醒的标记，避免同一天重复通知 */
     val lastReminderKey: String = ""
 )
@@ -118,6 +124,9 @@ class SettingsDataStore(private val context: Context) {
         val REMINDER_ENABLED = booleanPreferencesKey("reminder_enabled")
         val REMINDER_TYPE = stringPreferencesKey("reminder_type")
         val REMINDER_MINUTES = intPreferencesKey("reminder_minutes")
+        val REMINDER_RING_ENABLED = booleanPreferencesKey("reminder_ring_enabled")
+        val REMINDER_RINGTONE_URI = stringPreferencesKey("reminder_ringtone_uri")
+        val REMINDER_RINGTONE_NAME = stringPreferencesKey("reminder_ringtone_name")
         val LAST_REMINDER_KEY = stringPreferencesKey("last_reminder_key")
     }
 
@@ -137,6 +146,9 @@ class SettingsDataStore(private val context: Context) {
             reminderEnabled = prefs[Keys.REMINDER_ENABLED] ?: false,
             reminderType = prefs[Keys.REMINDER_TYPE] ?: ReminderType.OVERTIME.value,
             reminderMinutes = prefs[Keys.REMINDER_MINUTES] ?: 420,
+            reminderRingEnabled = prefs[Keys.REMINDER_RING_ENABLED] ?: true,
+            reminderRingtoneUri = prefs[Keys.REMINDER_RINGTONE_URI] ?: "",
+            reminderRingtoneName = prefs[Keys.REMINDER_RINGTONE_NAME] ?: "",
             lastReminderKey = prefs[Keys.LAST_REMINDER_KEY] ?: ""
         )
     }
@@ -185,6 +197,21 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setReminderMinutes(value: Int) =
         context.dataStore.edit { it[Keys.REMINDER_MINUTES] = value.coerceIn(60, 720) }
+
+    suspend fun setReminderRingEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.REMINDER_RING_ENABLED] = enabled }
+
+    suspend fun setReminderRingtone(uri: String, name: String) =
+        context.dataStore.edit {
+            it[Keys.REMINDER_RINGTONE_URI] = uri
+            it[Keys.REMINDER_RINGTONE_NAME] = name
+        }
+
+    suspend fun clearReminderRingtone() =
+        context.dataStore.edit {
+            it[Keys.REMINDER_RINGTONE_URI] = ""
+            it[Keys.REMINDER_RINGTONE_NAME] = ""
+        }
 
     suspend fun setLastReminderKey(value: String) =
         context.dataStore.edit { it[Keys.LAST_REMINDER_KEY] = value }

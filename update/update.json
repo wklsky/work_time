@@ -1,6 +1,6 @@
 {
-  "versionName": "2.3.1",
-  "notes": "修复「选择年月」「自定义统计区间」弹层确认按钮被底部手势导航条遮挡的问题",
-  "apkUrl": "https://github.com/wklsky/work_time/releases/download/v2.3.1/WorkTime.apk",
+  "versionName": "2.4.0",
+  "notes": "提醒支持闹钟响铃与自定义本地音频铃声，精确闹钟准点触发，后台/锁屏也能响",
+  "apkUrl": "https://github.com/wklsky/work_time/releases/download/v2.4.0/WorkTime.apk",
   "sizeBytes": 0
 }

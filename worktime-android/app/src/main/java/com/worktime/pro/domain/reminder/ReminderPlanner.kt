@@ -19,7 +19,11 @@ data class ReminderPlan(
     val type: ReminderType,
     val thresholdMinutes: Int,
     val triggerAtMillis: Long,
-    val date: LocalDate
+    val date: LocalDate,
+    /** true 时到点用闹钟音频流响铃，false 时只发普通通知 */
+    val ring: Boolean,
+    /** 自定义铃声 URI；空串表示系统默认闹钟铃声 */
+    val ringtoneUri: String
 )
 
 object ReminderPlanner {
@@ -78,6 +82,13 @@ object ReminderPlanner {
                 (threshold - targetMinutes).coerceAtLeast(1) * 60_000L
             else -> return null
         }
-        return ReminderPlan(type, threshold, triggerAt, date)
+        return ReminderPlan(
+            type = type,
+            thresholdMinutes = threshold,
+            triggerAtMillis = triggerAt,
+            date = date,
+            ring = settings.reminderRingEnabled,
+            ringtoneUri = settings.reminderRingtoneUri
+        )
     }
 }
