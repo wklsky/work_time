@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- 锁屏/熄屏时直接弹出提醒停止界面（Android 14+ 需用户在设置中允许） -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- 用系统闹钟级精确闹钟保证准点触发：Android 12-12L 用 SCHEDULE_EXACT_ALARM，13+ 用 USE_EXACT_ALARM -->
     <uses-permission
         android:name="android.permission.SCHEDULE_EXACT_ALARM"
@@ -72,9 +74,26 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
+        <!-- 响铃全屏弹窗：锁屏/熄屏时展示提醒详情与停止、稍后提醒操作 -->
+        <activity
+            android:name=".domain.reminder.ReminderAlarmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:taskAffinity="com.worktime.pro.alarm"
+            android:theme="@style/Theme.WorkTimePro"
+            android:turnScreenOn="true"
+            tools:targetApi="27" />
+
         <!-- 通知栏「停止响铃」：走广播，服务被系统回收后也能兜底停止并撤掉通知 -->
         <receiver
             android:name=".domain.reminder.ReminderStopReceiver"
+            android:exported="false" />
+
+        <!-- 通知栏「稍后提醒」：停止本次响铃并排定一次性稍后闹钟 -->
+        <receiver
+            android:name=".domain.reminder.ReminderSnoozeReceiver"
             android:exported="false" />
 
         <!-- 开机/应用更新/系统时间变更后重新排定提醒 -->

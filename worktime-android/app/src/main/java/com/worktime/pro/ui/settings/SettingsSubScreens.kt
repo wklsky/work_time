@@ -31,6 +31,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,6 +61,7 @@ import com.worktime.pro.data.datastore.ReminderMode
 import com.worktime.pro.data.datastore.ThemeMode
 import com.worktime.pro.data.datastore.TimeFormatMode
 import com.worktime.pro.domain.model.PunchType
+import com.worktime.pro.domain.reminder.ReminderAlarmActivity
 import com.worktime.pro.domain.reminder.ReminderReliability
 import com.worktime.pro.domain.reminder.ReminderRingService
 import com.worktime.pro.domain.reminder.ReminderType
@@ -69,6 +71,7 @@ import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 import kotlin.math.roundToInt
 
 /** 打卡设置：默认动作以及工作规则与习惯打卡两个三级入口 */
@@ -280,9 +283,14 @@ fun SettingsReminderScreen(
     var exactAlarmAllowed by remember {
         mutableStateOf(ReminderReliability.canScheduleExactAlarms(context))
     }
+    var fullScreenAllowed by remember {
+        mutableStateOf(ReminderReliability.canUseFullScreenIntent(context))
+    }
     var alarmVolumeSilent by remember {
         mutableStateOf(ReminderReliability.alarmVolumeSilent(context))
     }
+    var showNotificationRationale by remember { mutableStateOf(false) }
+    var showNotificationDenied by remember { mutableStateOf(false) }
     // Compose 内容宿主最终是 Activity；层层拆开 ContextWrapper，避免主题包装导致取不到
     val lifecycleOwner = context.findActivityLifecycleOwner()
     DisposableEffect(lifecycleOwner) {
@@ -296,6 +304,7 @@ fun SettingsReminderScreen(
                     batteryUnrestricted =
                         ReminderReliability.ignoringBatteryOptimizations(context)
                     exactAlarmAllowed = ReminderReliability.canScheduleExactAlarms(context)
+                    fullScreenAllowed = ReminderReliability.canUseFullScreenIntent(context)
                     alarmVolumeSilent = ReminderReliability.alarmVolumeSilent(context)
                 }
             }
@@ -303,9 +312,15 @@ fun SettingsReminderScreen(
             onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
     }
-    // 31-32 必须手动授权；33+ 正常由 USE_EXACT_ALARM 自动授予，只有异常未授予时才提示
-    val showExactAlarmRow = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-        (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2 || !exactAlarmAllowed)
+
+    val notificationsReady = notificationsEnabled && !alarmChannelBlocked
+    // Android 13+ 且系统权限尚未授予时还能弹系统授权框；否则只能去通知设置里改
+    val canRequestNotificationPermission = Build.VERSION.SDK_INT >=
+        Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) != PackageManager.PERMISSION_GRANTED
     val openSystemPage: (Intent) -> Unit = { intent ->
         if (!ReminderReliability.open(context, intent)) {
             Toast.makeText(
@@ -315,15 +330,31 @@ fun SettingsReminderScreen(
             ).show()
         }
     }
+    val fixNotifications: () -> Unit = {
+        if (!notificationsEnabled && canRequestNotificationPermission) {
+            showNotificationRationale = true
+        } else {
+            openSystemPage(ReminderReliability.notificationSettingsIntent(context))
+        }
+    }
+    // 31-32 必须手动授权；33+ 正常由 USE_EXACT_ALARM 自动授予，只有异常未授予时才提示
+    val showExactAlarmRow = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2 || !exactAlarmAllowed)
+    val showFullScreenRow = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+    val todayReminderKey =
+        "${TimeFormatter.formatDateKey(LocalDate.now())}:${currentReminderType.value}:" +
+            settings.reminderMinutes
+    val remindedToday = settings.lastReminderKey == todayReminderKey
 
     // Android 13+ 发送提醒需要通知权限
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
+            notificationsEnabled = true
             viewModel.setReminderEnabled(true)
         } else {
-            Toast.makeText(context, "未授予通知权限，提醒无法发送", Toast.LENGTH_LONG).show()
+            showNotificationDenied = true
         }
     }
 
@@ -352,27 +383,78 @@ fun SettingsReminderScreen(
     // 三选项里只有「仅震动」不需要铃声，用它控制铃声行的显示
     val currentMode = ReminderMode.fromValue(settings.reminderMode)
 
+    if (showNotificationRationale) {
+        AlertDialog(
+            onDismissRequest = { showNotificationRationale = false },
+            title = { Text("开启通知权限") },
+            text = {
+                Text(
+                    "工时提醒需要通知权限：达到阈值后才能发送提醒；" +
+                        "响铃提醒还需要通知栏里的「停止响铃」与「稍后提醒」。"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showNotificationRationale = false
+                        notificationPermissionLauncher.launch(
+                            Manifest.permission.POST_NOTIFICATIONS
+                        )
+                    }
+                ) { Text("去开启") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNotificationRationale = false }) { Text("暂不") }
+            }
+        )
+    }
+    if (showNotificationDenied) {
+        AlertDialog(
+            onDismissRequest = { showNotificationDenied = false },
+            title = { Text("通知权限未开启") },
+            text = {
+                Text(
+                    "当前无法发送提醒通知，响铃时通知栏也没有停止按钮。" +
+                        "请在系统设置中允许本应用发送通知。"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showNotificationDenied = false
+                        openSystemPage(ReminderReliability.notificationSettingsIntent(context))
+                    }
+                ) { Text("去系统设置") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNotificationDenied = false }) { Text("取消") }
+            }
+        )
+    }
+
     SettingsPage(
         title = "提醒",
         subtitle = "累计工时达标后提醒，可选响铃、仅震动或跟随系统",
         onBack = onBack
     ) {
+        // 已开启提醒但通知不可用时，置顶提示，避免用户以为提醒失效
+        AnimatedVisibility(visible = settings.reminderEnabled && !notificationsReady) {
+            NotificationPermissionBanner(
+                channelBlocked = notificationsEnabled && alarmChannelBlocked,
+                onClick = fixNotifications
+            )
+        }
         SettingsGroupCard {
             SwitchRow(
                 title = "累计提醒",
                 description = "达到设定时长后提醒，可在下方开启响铃；后台权限不足时会延迟",
                 checked = settings.reminderEnabled,
                 onCheckedChange = { enabled ->
-                    val needsPermission = enabled &&
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.POST_NOTIFICATIONS
-                        ) != PackageManager.PERMISSION_GRANTED
-                    if (needsPermission) {
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        viewModel.setReminderEnabled(enabled)
+                    when {
+                        !enabled -> viewModel.setReminderEnabled(false)
+                        notificationsEnabled -> viewModel.setReminderEnabled(true)
+                        canRequestNotificationPermission -> showNotificationRationale = true
+                        else -> showNotificationDenied = true
                     }
                 }
             )
@@ -389,6 +471,20 @@ fun SettingsReminderScreen(
                         }
                     }
                     ReminderThreshold(settings = settings, onCommit = viewModel::setReminderMinutes)
+                    Text(
+                        if (remindedToday) {
+                            "今日已提醒 · 修改类型或阈值可再次提醒"
+                        } else {
+                            "今日尚未提醒 · 达到阈值后自动触发"
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (remindedToday) {
+                            MaterialTheme.colorScheme.secondary
+                        } else {
+                            muted
+                        }
+                    )
                     ItemDivider()
                     SwitchRow(
                         title = "响铃提醒",
@@ -396,7 +492,7 @@ fun SettingsReminderScreen(
                         checked = settings.reminderRingEnabled,
                         onCheckedChange = { enabled ->
                             viewModel.setReminderRingEnabled(enabled)
-                            if (enabled && !notificationsEnabled) {
+                            if (enabled && !notificationsReady) {
                                 Toast.makeText(
                                     context,
                                     "通知权限未开启，响铃时通知栏没有停止按钮",
@@ -484,13 +580,12 @@ fun SettingsReminderScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = muted
                     )
-                    val notificationsReady = notificationsEnabled && !alarmChannelBlocked
                     SettingRow(
                         title = "通知权限",
                         description = when {
-                            !notificationsEnabled -> "已关闭，响铃时通知栏没有停止按钮"
+                            !notificationsEnabled -> "已关闭，提醒无法送达，通知栏也没有停止按钮"
                             alarmChannelBlocked -> "响铃通知渠道被单独屏蔽，通知栏没有停止按钮"
-                            else -> "已开启，响铃时可从通知栏停止"
+                            else -> "已开启，响铃时可从通知栏停止或稍后提醒"
                         },
                         descriptionColor = if (notificationsReady) {
                             muted
@@ -498,13 +593,7 @@ fun SettingsReminderScreen(
                             MaterialTheme.colorScheme.error
                         },
                         trailing = {
-                            TextButton(
-                                onClick = {
-                                    openSystemPage(
-                                        ReminderReliability.notificationSettingsIntent(context)
-                                    )
-                                }
-                            ) {
+                            TextButton(onClick = fixNotifications) {
                                 Text(if (notificationsReady) "查看" else "去开启")
                             }
                         }
@@ -560,6 +649,32 @@ fun SettingsReminderScreen(
                             }
                         )
                     }
+                    if (showFullScreenRow) {
+                        ItemDivider()
+                        SettingRow(
+                            title = "闹钟弹窗",
+                            description = if (fullScreenAllowed) {
+                                "已允许，锁屏或熄屏时会弹出停止界面"
+                            } else {
+                                "未允许，锁屏时只显示通知，不会弹出停止界面"
+                            },
+                            descriptionColor = if (fullScreenAllowed) {
+                                muted
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                            trailing = {
+                                TextButton(
+                                    onClick = {
+                                        ReminderReliability.fullScreenIntentSettingsIntent(context)
+                                            ?.let(openSystemPage)
+                                    }
+                                ) {
+                                    Text(if (fullScreenAllowed) "查看" else "去开启")
+                                }
+                            }
+                        )
+                    }
                     if (alarmVolumeSilent) {
                         ItemDivider()
                         SettingRow(
@@ -592,7 +707,7 @@ fun SettingsReminderScreen(
                     ItemDivider()
                     SettingRow(
                         title = "测试提醒",
-                        description = "按当前提醒方式立即试一次 10 秒，验证铃声/震动与通知栏的「停止响铃」",
+                        description = "按当前提醒方式试一次（10 秒），并预览闹铃弹窗与通知栏操作",
                         trailing = {
                             TextButton(
                                 onClick = {
@@ -601,12 +716,26 @@ fun SettingsReminderScreen(
                                             context = context,
                                             type = currentReminderType,
                                             thresholdMinutes = settings.reminderMinutes,
+                                            currentMinutes = settings.reminderMinutes,
                                             ringtoneUri = settings.reminderRingtoneUri,
                                             mode = settings.reminderMode,
                                             durationMs = 10_000L
                                         )
                                     }.isSuccess
-                                    if (!started) {
+                                    if (started) {
+                                        runCatching {
+                                            context.startActivity(
+                                                ReminderAlarmActivity.intent(
+                                                    context = context,
+                                                    type = currentReminderType,
+                                                    thresholdMinutes = settings.reminderMinutes,
+                                                    currentMinutes = settings.reminderMinutes,
+                                                    mode = settings.reminderMode,
+                                                    ringtoneUri = settings.reminderRingtoneUri
+                                                )
+                                            )
+                                        }
+                                    } else {
                                         Toast.makeText(
                                             context,
                                             "响铃启动失败，请检查通知与后台权限",
@@ -618,6 +747,48 @@ fun SettingsReminderScreen(
                         }
                     )
                 }
+            }
+        }
+    }
+}
+
+/** 提醒已开启但通知不可用时的置顶提示，点按钮直接申请权限或跳系统设置 */
+@Composable
+private fun NotificationPermissionBanner(
+    channelBlocked: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.errorContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    if (channelBlocked) "响铃通知被系统屏蔽" else "通知权限未开启",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Text(
+                    if (channelBlocked) {
+                        "通知栏不会显示「停止响铃」和「稍后提醒」"
+                    } else {
+                        "提醒无法送达，响铃时也无法在通知栏停止"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+            TextButton(onClick = onClick) {
+                Text(
+                    if (channelBlocked) "去设置" else "去开启",
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
             }
         }
     }

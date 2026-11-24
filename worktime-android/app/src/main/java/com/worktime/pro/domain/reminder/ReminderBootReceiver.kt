@@ -36,6 +36,7 @@ class ReminderBootReceiver : BroadcastReceiver() {
                 val settings = SettingsDataStore(appContext).settings.first()
                 if (!settings.reminderEnabled) {
                     ReminderScheduler.cancel(appContext)
+                    ReminderScheduler.cancelSnooze(appContext)
                     return@runCatching
                 }
                 val today = LocalDate.now()
@@ -56,6 +57,7 @@ class ReminderBootReceiver : BroadcastReceiver() {
                         triggerAtMillis = plan.triggerAtMillis,
                         type = plan.type,
                         thresholdMinutes = plan.thresholdMinutes,
+                        currentMinutes = plan.currentMinutes,
                         date = plan.date,
                         ring = plan.ring,
                         mode = plan.mode.value,

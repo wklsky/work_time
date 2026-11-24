@@ -19,6 +19,8 @@ import java.time.ZoneId
 data class ReminderPlan(
     val type: ReminderType,
     val thresholdMinutes: Int,
+    /** 触发时刻的累计分钟数，用于通知与弹窗展示「当前累计」 */
+    val currentMinutes: Int,
     val triggerAtMillis: Long,
     val date: LocalDate,
     /** true 时到点用闹钟音频流响铃，false 时只发普通通知 */
@@ -85,15 +87,20 @@ object ReminderPlanner {
         }
         val thresholdMillis = threshold * 60_000L
         val targetMillis = completedMinutes * 60_000L + openMillis
+        val currentNowMinutes = completedMinutes + (openMillis / 60_000L).toInt()
+        val immediate = targetMillis >= thresholdMillis
 
         val triggerAt = when {
-            targetMillis >= thresholdMillis -> nowMillis + 1_000
+            immediate -> nowMillis + 1_000
             hasOpen -> nowMillis + (thresholdMillis - targetMillis).coerceAtLeast(1_000L)
             else -> return null
         }
+        // 未来时刻触发的提醒，到点时累计值恰好达到阈值；立即提醒则取当前真实值
+        val currentAtTrigger = if (immediate) currentNowMinutes else threshold
         return ReminderPlan(
             type = type,
             thresholdMinutes = threshold,
+            currentMinutes = currentAtTrigger,
             triggerAtMillis = triggerAt,
             date = date,
             ring = settings.reminderRingEnabled,

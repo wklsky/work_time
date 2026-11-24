@@ -55,6 +55,7 @@ class BackupManager(
                 put("reminderType", settings.reminderType)
                 put("reminderMinutes", settings.reminderMinutes)
                 put("reminderRingEnabled", settings.reminderRingEnabled)
+                put("reminderMode", settings.reminderMode)
                 put("reminderRingtoneUri", settings.reminderRingtoneUri)
                 put("reminderRingtoneName", settings.reminderRingtoneName)
             })
@@ -213,6 +214,9 @@ class BackupManager(
             }
             if (saved.has("reminderRingEnabled")) {
                 settingsDataStore.setReminderRingEnabled(saved.optBoolean("reminderRingEnabled", true))
+            }
+            saved.optString("reminderMode").takeIf { it.isNotBlank() }?.let {
+                settingsDataStore.setReminderMode(it)
             }
             if (saved.has("reminderRingtoneUri")) {
                 settingsDataStore.setReminderRingtone(

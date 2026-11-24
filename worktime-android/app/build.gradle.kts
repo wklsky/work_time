@@ -39,8 +39,8 @@ android {
         targetSdk = 35
         // 发布新版必须先递增 versionCode（系统只在更大时才允许覆盖安装），
         // versionName 需与 GitHub Release 的 tag（vX.Y.Z）保持一致，更新检测靠它比对
-        versionCode = 11
-        versionName = "2.5.1"
+        versionCode = 12
+        versionName = "2.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

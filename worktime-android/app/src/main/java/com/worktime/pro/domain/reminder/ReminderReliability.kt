@@ -41,6 +41,21 @@ object ReminderReliability {
     fun canScheduleExactAlarms(context: Context): Boolean =
         ReminderScheduler.canScheduleExactAlarms(context)
 
+    /** Android 14+ 全屏通知权限：未允许时锁屏只会显示普通通知，不会弹出停止界面 */
+    fun canUseFullScreenIntent(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return true
+        return manager.canUseFullScreenIntent()
+    }
+
+    fun fullScreenIntentSettingsIntent(context: Context): Intent? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null
+        return Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+            data = Uri.parse("package:${context.packageName}")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
     /** 闹钟音量为 0 时响铃听不到，属于最常见的“没响”原因之一 */
     fun alarmVolumeSilent(context: Context): Boolean {
         val audioManager = context.getSystemService(AudioManager::class.java) ?: return false

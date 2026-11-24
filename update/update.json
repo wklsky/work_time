@@ -1,6 +1,6 @@
 {
-  "versionName": "2.5.1",
-  "notes": "新增提醒方式三选项：声音+震动 / 仅震动 / 跟随系统，会议与夜间可完全静音提醒",
-  "apkUrl": "https://github.com/wklsky/work_time/releases/download/v2.5.1/WorkTime.apk",
+  "versionName": "2.5.2",
+  "notes": "完善提醒体验：通知权限引导与置顶提示；锁屏/熄屏全屏提醒弹窗，可停止响铃或稍后 5/10/30 分钟；通知展示触发时累计时长并新增「稍后 10 分钟」；Android 14+ 支持闹钟弹窗授权",
+  "apkUrl": "https://github.com/wklsky/work_time/releases/download/v2.5.2/WorkTime.apk",
   "sizeBytes": 0
 }

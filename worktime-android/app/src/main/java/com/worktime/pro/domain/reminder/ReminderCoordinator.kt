@@ -30,11 +30,22 @@ class ReminderCoordinator(
 ) {
     private var job: Job? = null
 
+    /** 上次看到的提醒配置，用来在用户修改类型/阈值/开关时取消还没触发的稍后提醒 */
+    private var lastConfig: ReminderConfig? = null
+
     private data class Snapshot(
         val settings: AppSettings,
         val date: LocalDate,
         val events: List<PunchEventEntity>,
         val sessions: List<WorkSessionEntity>
+    )
+
+    private data class ReminderConfig(
+        val enabled: Boolean,
+        val type: String,
+        val minutes: Int,
+        val ring: Boolean,
+        val mode: String
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -52,6 +63,19 @@ class ReminderCoordinator(
                     Snapshot(appSettings, date, events, sessions)
                 }
             }.collect { snapshot ->
+                val config = ReminderConfig(
+                    enabled = snapshot.settings.reminderEnabled,
+                    type = snapshot.settings.reminderType,
+                    minutes = snapshot.settings.reminderMinutes,
+                    ring = snapshot.settings.reminderRingEnabled,
+                    mode = snapshot.settings.reminderMode
+                )
+                // 用户改了提醒配置，之前点的「稍后提醒」已经失去意义，一并取消
+                if (lastConfig != null && lastConfig != config) {
+                    ReminderScheduler.cancelSnooze(context)
+                }
+                lastConfig = config
+
                 val plan = ReminderPlanner.plan(
                     settings = snapshot.settings,
                     date = snapshot.date,
@@ -65,6 +89,7 @@ class ReminderCoordinator(
                         triggerAtMillis = plan.triggerAtMillis,
                         type = plan.type,
                         thresholdMinutes = plan.thresholdMinutes,
+                        currentMinutes = plan.currentMinutes,
                         date = plan.date,
                         ring = plan.ring,
                         mode = plan.mode.value,

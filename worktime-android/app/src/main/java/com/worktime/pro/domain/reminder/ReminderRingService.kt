@@ -20,6 +20,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -42,6 +43,7 @@ class ReminderRingService : Service() {
 
         private const val EXTRA_TYPE = "extra_ring_type"
         private const val EXTRA_THRESHOLD = "extra_ring_threshold"
+        private const val EXTRA_CURRENT = "extra_ring_current"
         private const val EXTRA_RINGTONE = "extra_ring_ringtone"
         private const val EXTRA_MODE = "extra_ring_mode"
         private const val EXTRA_DURATION = "extra_ring_duration"
@@ -49,10 +51,19 @@ class ReminderRingService : Service() {
         /** 最长响铃时长，避免用户没注意到时一直响 */
         const val DEFAULT_RING_DURATION_MS = 60_000L
 
+        /** 供全屏弹窗判断是否还在响铃、以及展示倒计时 */
+        @Volatile
+        private var ringEndElapsed = 0L
+
+        fun isRinging(): Boolean = ringEndElapsed > SystemClock.elapsedRealtime()
+
+        fun ringEndElapsedRealtime(): Long = ringEndElapsed
+
         fun start(
             context: Context,
             type: ReminderType,
             thresholdMinutes: Int,
+            currentMinutes: Int,
             ringtoneUri: String,
             mode: String = ReminderMode.SOUND_VIBRATE.value,
             durationMs: Long = DEFAULT_RING_DURATION_MS
@@ -61,6 +72,7 @@ class ReminderRingService : Service() {
                 action = ACTION_START
                 putExtra(EXTRA_TYPE, type.value)
                 putExtra(EXTRA_THRESHOLD, thresholdMinutes)
+                putExtra(EXTRA_CURRENT, currentMinutes)
                 putExtra(EXTRA_RINGTONE, ringtoneUri)
                 putExtra(EXTRA_MODE, mode)
                 putExtra(EXTRA_DURATION, durationMs)
@@ -107,9 +119,14 @@ class ReminderRingService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        val current = (intent?.getIntExtra(EXTRA_CURRENT, threshold) ?: threshold)
+            .coerceAtLeast(threshold)
+        val ringtoneUri = intent?.getStringExtra(EXTRA_RINGTONE).orEmpty()
         stopAfterMs = (intent?.getLongExtra(EXTRA_DURATION, DEFAULT_RING_DURATION_MS)
             ?: DEFAULT_RING_DURATION_MS).coerceIn(1_000L, 5 * 60_000L)
         mode = ReminderMode.fromValue(intent?.getStringExtra(EXTRA_MODE).orEmpty())
+        // 先标记响铃结束时间：全屏弹窗可能在通知发出的瞬间就被拉起
+        ringEndElapsed = SystemClock.elapsedRealtime() + stopAfterMs
 
         // 前台服务通知必须尽快发出，否则系统会判定启动超时
         val foregroundStarted = runCatching {
@@ -120,7 +137,20 @@ class ReminderRingService : Service() {
                     context = this,
                     type = type,
                     thresholdMinutes = threshold,
-                    stopIntent = stopIntent()
+                    currentMinutes = current,
+                    stopIntent = stopIntent(),
+                    snoozeIntent = ReminderSnoozeReceiver.pendingIntent(
+                        context = this,
+                        type = type,
+                        thresholdMinutes = threshold,
+                        currentMinutes = current,
+                        ring = true,
+                        mode = mode.value,
+                        ringtoneUri = ringtoneUri
+                    ),
+                    fullScreenIntent = alarmScreenIntent(
+                        type, threshold, current, mode.value, ringtoneUri
+                    )
                 ),
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
@@ -134,13 +164,34 @@ class ReminderRingService : Service() {
             // 极少数 ROM 会拒绝前台服务：退回带闹钟音的普通通知，至少不会彻底静音。
             // 该通知交给系统自动取消，不能被下面的 onDestroy 一并清掉
             ownsAlarmNotification = false
-            ReminderNotification.showLoud(this, type, threshold)
+            ringEndElapsed = 0L
+            if (mode == ReminderMode.VIBRATE_ONLY) {
+                ReminderNotification.show(
+                    context = this,
+                    type = type,
+                    thresholdMinutes = threshold,
+                    currentMinutes = current,
+                    ring = true,
+                    mode = mode.value,
+                    ringtoneUri = ""
+                )
+            } else {
+                ReminderNotification.showLoud(
+                    context = this,
+                    type = type,
+                    thresholdMinutes = threshold,
+                    currentMinutes = current,
+                    ring = true,
+                    mode = mode.value,
+                    ringtoneUri = ""
+                )
+            }
             stopSelf()
             return START_NOT_STICKY
         }
         ownsAlarmNotification = true
 
-        startRinging(intent?.getStringExtra(EXTRA_RINGTONE).orEmpty())
+        startRinging(ringtoneUri)
         return START_NOT_STICKY
     }
 
@@ -149,6 +200,28 @@ class ReminderRingService : Service() {
             this,
             0,
             Intent(this, ReminderStopReceiver::class.java).apply { action = ACTION_STOP },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+    /** 锁屏/熄屏时直接弹出的停止界面 */
+    private fun alarmScreenIntent(
+        type: ReminderType,
+        threshold: Int,
+        current: Int,
+        mode: String,
+        ringtoneUri: String
+    ): PendingIntent =
+        PendingIntent.getActivity(
+            this,
+            1,
+            ReminderAlarmActivity.intent(
+                context = this,
+                type = type,
+                thresholdMinutes = threshold,
+                currentMinutes = current,
+                mode = mode,
+                ringtoneUri = ringtoneUri
+            ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -285,6 +358,7 @@ class ReminderRingService : Service() {
 
     override fun onDestroy() {
         destroyed = true
+        ringEndElapsed = 0L
         stopHandler.removeCallbacks(stopRunnable)
         mediaPlayer?.let { player ->
             runCatching { player.stop() }

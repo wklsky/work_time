@@ -23,26 +23,41 @@ class ReminderReceiver : BroadcastReceiver() {
             ?: ReminderType.OVERTIME
         val threshold = intent.getIntExtra(ReminderScheduler.EXTRA_THRESHOLD, 0)
         if (threshold <= 0) return
+        val current = intent.getIntExtra(ReminderScheduler.EXTRA_CURRENT, threshold)
+            .coerceAtLeast(threshold)
+        val mode = ReminderMode.fromValue(
+            intent.getStringExtra(ReminderScheduler.EXTRA_MODE).orEmpty()
+        )
+        val ringtoneUri = intent.getStringExtra(ReminderScheduler.EXTRA_RINGTONE).orEmpty()
 
         if (intent.getBooleanExtra(ReminderScheduler.EXTRA_RING, false)) {
-            val ringtoneUri = intent.getStringExtra(ReminderScheduler.EXTRA_RINGTONE).orEmpty()
-            val mode = ReminderMode.fromValue(
-                intent.getStringExtra(ReminderScheduler.EXTRA_MODE).orEmpty()
-            )
             // 后台启动前台服务可能被系统拦截（未授予精确闹钟权限、ROM 限制自启动等），
             // 失败时退回通知：用户选了仅震动就不能再响，否则退回带闹钟音的强提醒
             val started = runCatching {
-                ReminderRingService.start(context, type, threshold, ringtoneUri, mode.value)
+                ReminderRingService.start(
+                    context = context,
+                    type = type,
+                    thresholdMinutes = threshold,
+                    currentMinutes = current,
+                    ringtoneUri = ringtoneUri,
+                    mode = mode.value
+                )
             }.isSuccess
             if (!started) {
                 if (mode == ReminderMode.VIBRATE_ONLY) {
-                    ReminderNotification.show(context, type, threshold)
+                    ReminderNotification.show(
+                        context, type, threshold, current, true, mode.value, ""
+                    )
                 } else {
-                    ReminderNotification.showLoud(context, type, threshold)
+                    ReminderNotification.showLoud(
+                        context, type, threshold, current, true, mode.value, ""
+                    )
                 }
             }
         } else {
-            ReminderNotification.show(context, type, threshold)
+            ReminderNotification.show(
+                context, type, threshold, current, false, mode.value, ringtoneUri
+            )
         }
 
         val dateKey = intent.getStringExtra(ReminderScheduler.EXTRA_DATE).orEmpty()
