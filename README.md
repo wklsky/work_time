@@ -155,7 +155,7 @@ gradlew.bat :app:assembleRelease
 | 本地库 | Room 2.6.1（KSP） | 3 张表持久化打卡、工时段与规则，v2 迁移清理 OCR 残留字段 |
 | 设置 | DataStore Preferences 1.1 | 本地偏好（含表盘刻度样式等） |
 | 图表 | Compose Canvas 自绘 | 未引入第三方图表库，包体更小 |
-| 提醒 | AlarmManager（setAlarmClock）+ Notification + 前台服务 | 精确闹钟准点唤醒，响铃走闹钟音频流；无 WorkManager 依赖，开机/更新后自动重排 |
+| 提醒 | AlarmManager（setAlarmClock）+ Notification + 前台服务 | 精确闹钟准点唤醒，响铃走闹钟音频流；无 WorkManager 依赖，开机/更新/时间变更后自动重排；停止响铃走广播兜底 |
 | 更新 | GitHub Releases API + DownloadManager | 原生 `HttpURLConnection` + `org.json`，未新增网络库 |
 
 ---
@@ -185,7 +185,9 @@ gradlew.bat :app:assembleRelease
 - **工时提醒**：按加班 / 正常工时 / 净投入设定累计阈值（如加班满 7 小时），达到后发送系统通知；
   可选**响铃提醒**，用闹钟音频流循环响铃并震动最多 60 秒，通知内可停止，
   铃声支持从本地音频文件中选择；
-  退到后台由系统精确闹钟触发，开机/应用更新后自动重排，同一天同一阈值不重复通知
+  退到后台由系统精确闹钟触发，开机/应用更新/系统时间变更后自动重排，同一天同一阈值不重复通知；
+  提醒页内置**可靠性自检**（通知权限 / 电池优化 / 精确闹钟 / 自启动白名单 / 测试响铃），
+  引导用户放行国内 ROM 的后台清理限制
 - **工作规则**：上下班、午休、加班缓冲、日切时间、工作日可配置，支持按新规则重算历史
 
 **外观与数据**
@@ -217,6 +219,7 @@ gradlew.bat :app:assembleRelease
 | `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | 响铃提醒时在后台播放闹钟铃声 | 仅响铃期间运行，最多 60 秒，通知内可停止 |
 | `VIBRATE` / `WAKE_LOCK` | 响铃时震动并保证熄屏下持续响铃 | 仅响铃期间生效 |
 | `USE_EXACT_ALARM`（API 33+）/ `SCHEDULE_EXACT_ALARM`（API 31-32） | 准点触发提醒 | 使用系统闹钟级精确闹钟，仅用于用户开启的工时提醒 |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | 引导用户允许后台运行 | 仅在提醒设置页由用户主动点击时申请，避免清理后台后闹钟失效 |
 | `INTERNET` | 读取 GitHub Release 版本信息、下载更新包 | 仅更新检查使用，不上传任何数据 |
 | `REQUEST_INSTALL_PACKAGES` | 安装已下载的更新包 | Android 8.0+ 需用户先允许「安装未知应用」 |
 | `ACCESS_NETWORK_STATE` | 更新下载的网络状态判断 | 配合 DownloadManager 使用 |

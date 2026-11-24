@@ -57,29 +57,35 @@ object ReminderPlanner {
             (workEnd == null || workStart.punchTime >= workEnd.punchTime)
         val otOpen = otStart != null &&
             (otEnd == null || otStart.punchTime >= otEnd.punchTime)
-        val openWorkMinutes = if (workOpen) {
-            ((nowMillis - workStart!!.punchTime) / 60_000L).toInt().coerceAtLeast(0)
-        } else 0
-        val openOtMinutes = if (otOpen) {
-            ((nowMillis - otStart!!.punchTime) / 60_000L).toInt().coerceAtLeast(0)
-        } else 0
+        // 进行中的段按毫秒精确计时：用分钟取整会让每次重排都把触发时刻往后推几十秒
+        val openWorkMillis = if (workOpen) {
+            (nowMillis - workStart!!.punchTime).coerceAtLeast(0L)
+        } else 0L
+        val openOtMillis = if (otOpen) {
+            (nowMillis - otStart!!.punchTime).coerceAtLeast(0L)
+        } else 0L
 
-        val targetMinutes = when (type) {
-            ReminderType.OVERTIME -> totals.overtimeMinutes + openOtMinutes
-            ReminderType.WORK -> totals.regularMinutes + openWorkMinutes
-            ReminderType.NET -> totals.regularMinutes + totals.overtimeMinutes +
-                openWorkMinutes + openOtMinutes
+        val completedMinutes = when (type) {
+            ReminderType.OVERTIME -> totals.overtimeMinutes
+            ReminderType.WORK -> totals.regularMinutes
+            ReminderType.NET -> totals.regularMinutes + totals.overtimeMinutes
+        }
+        val openMillis = when (type) {
+            ReminderType.OVERTIME -> openOtMillis
+            ReminderType.WORK -> openWorkMillis
+            ReminderType.NET -> openWorkMillis + openOtMillis
         }
         val hasOpen = when (type) {
             ReminderType.OVERTIME -> otOpen
             ReminderType.WORK -> workOpen
             ReminderType.NET -> workOpen || otOpen
         }
+        val thresholdMillis = threshold * 60_000L
+        val targetMillis = completedMinutes * 60_000L + openMillis
 
         val triggerAt = when {
-            targetMinutes >= threshold -> System.currentTimeMillis() + 1_000
-            hasOpen -> System.currentTimeMillis() +
-                (threshold - targetMinutes).coerceAtLeast(1) * 60_000L
+            targetMillis >= thresholdMillis -> nowMillis + 1_000
+            hasOpen -> nowMillis + (thresholdMillis - targetMillis).coerceAtLeast(1_000L)
             else -> return null
         }
         return ReminderPlan(

@@ -30,7 +30,7 @@
 | 本地库 | Room 2.6.1（KSP） | 3 张表持久化打卡、工时段与规则 |
 | 设置 | DataStore Preferences 1.1 | 本地偏好（18 个键，含打卡习惯与自定义铃声） |
 | 图表 | Compose Canvas 自绘 | 未引入第三方图表库，包体更小 |
-| 提醒 | AlarmManager（setAlarmClock）+ Notification + 前台服务 | 精确闹钟准点唤醒，可选闹钟音频流循环响铃；无 WorkManager 依赖，开机/更新后自动重排 |
+| 提醒 | AlarmManager（setAlarmClock）+ Notification + 前台服务 | 精确闹钟准点唤醒，可选闹钟音频流循环响铃；无 WorkManager 依赖，开机/更新/时间变更后自动重排；通知栏停止走广播兜底，设置页提供可靠性自检 |
 | 更新 | GitHub Releases API + DownloadManager | 原生 `HttpURLConnection` + `org.json`，未新增网络库 |
 
 **分层结构**

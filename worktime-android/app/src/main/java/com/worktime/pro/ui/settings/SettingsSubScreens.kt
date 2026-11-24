@@ -7,6 +7,7 @@ package com.worktime.pro.ui.settings
 
 import android.Manifest
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -33,10 +34,12 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -46,6 +49,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
@@ -53,6 +59,8 @@ import com.worktime.pro.data.datastore.ClockDialStyle
 import com.worktime.pro.data.datastore.ThemeMode
 import com.worktime.pro.data.datastore.TimeFormatMode
 import com.worktime.pro.domain.model.PunchType
+import com.worktime.pro.domain.reminder.ReminderReliability
+import com.worktime.pro.domain.reminder.ReminderRingService
 import com.worktime.pro.domain.reminder.ReminderType
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.ui.theme.CustomPalette
@@ -253,6 +261,59 @@ fun SettingsReminderScreen(
     val viewModel: SettingsViewModel = viewModel(factory = factory)
     val settings by viewModel.settingsFlow.collectAsState(initial = AppSettings())
     val context = LocalContext.current
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val currentReminderType = ReminderType.entries
+        .firstOrNull { it.value == settings.reminderType }
+        ?: ReminderType.OVERTIME
+
+    // 系统设置状态：用户从系统设置页返回时在 ON_RESUME 重新读取，避免显示过期状态
+    var notificationsEnabled by remember {
+        mutableStateOf(ReminderReliability.notificationsEnabled(context))
+    }
+    var alarmChannelBlocked by remember {
+        mutableStateOf(ReminderReliability.alarmChannelBlocked(context))
+    }
+    var batteryUnrestricted by remember {
+        mutableStateOf(ReminderReliability.ignoringBatteryOptimizations(context))
+    }
+    var exactAlarmAllowed by remember {
+        mutableStateOf(ReminderReliability.canScheduleExactAlarms(context))
+    }
+    var alarmVolumeSilent by remember {
+        mutableStateOf(ReminderReliability.alarmVolumeSilent(context))
+    }
+    // Compose 内容宿主最终是 Activity；层层拆开 ContextWrapper，避免主题包装导致取不到
+    val lifecycleOwner = context.findActivityLifecycleOwner()
+    DisposableEffect(lifecycleOwner) {
+        if (lifecycleOwner == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    notificationsEnabled = ReminderReliability.notificationsEnabled(context)
+                    alarmChannelBlocked = ReminderReliability.alarmChannelBlocked(context)
+                    batteryUnrestricted =
+                        ReminderReliability.ignoringBatteryOptimizations(context)
+                    exactAlarmAllowed = ReminderReliability.canScheduleExactAlarms(context)
+                    alarmVolumeSilent = ReminderReliability.alarmVolumeSilent(context)
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
+    }
+    // 31-32 必须手动授权；33+ 正常由 USE_EXACT_ALARM 自动授予，只有异常未授予时才提示
+    val showExactAlarmRow = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2 || !exactAlarmAllowed)
+    val openSystemPage: (Intent) -> Unit = { intent ->
+        if (!ReminderReliability.open(context, intent)) {
+            Toast.makeText(
+                context,
+                "当前系统没有对应设置页，请到系统设置中手动开启",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 
     // Android 13+ 发送提醒需要通知权限
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -295,7 +356,7 @@ fun SettingsReminderScreen(
         SettingsGroupCard {
             SwitchRow(
                 title = "累计提醒",
-                description = "达到设定时长后提醒，可在下方开启响铃；后台可能略有延迟",
+                description = "达到设定时长后提醒，可在下方开启响铃；后台权限不足时会延迟",
                 checked = settings.reminderEnabled,
                 onCheckedChange = { enabled ->
                     val needsPermission = enabled &&
@@ -329,7 +390,16 @@ fun SettingsReminderScreen(
                         title = "响铃提醒",
                         description = "到点用闹钟音量循环响铃并震动，最多 60 秒；可在通知里停止",
                         checked = settings.reminderRingEnabled,
-                        onCheckedChange = viewModel::setReminderRingEnabled
+                        onCheckedChange = { enabled ->
+                            viewModel.setReminderRingEnabled(enabled)
+                            if (enabled && !notificationsEnabled) {
+                                Toast.makeText(
+                                    context,
+                                    "通知权限未开启，响铃时通知栏没有停止按钮",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
                     )
                     AnimatedVisibility(visible = settings.reminderRingEnabled) {
                         Column {
@@ -377,7 +447,164 @@ fun SettingsReminderScreen(
                 }
             }
         }
+
+        // 提醒可靠性：国内 ROM 清理后台会取消闹钟/限制自启动，必须引导用户逐项放行
+        AnimatedVisibility(visible = settings.reminderEnabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionLabel("提醒可靠性")
+                SettingsGroupCard {
+                    Text(
+                        "部分手机清理后台时会取消提醒。以下项目全部允许后，退到后台也能准点响铃。",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = muted
+                    )
+                    val notificationsReady = notificationsEnabled && !alarmChannelBlocked
+                    SettingRow(
+                        title = "通知权限",
+                        description = when {
+                            !notificationsEnabled -> "已关闭，响铃时通知栏没有停止按钮"
+                            alarmChannelBlocked -> "响铃通知渠道被单独屏蔽，通知栏没有停止按钮"
+                            else -> "已开启，响铃时可从通知栏停止"
+                        },
+                        descriptionColor = if (notificationsReady) {
+                            muted
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                        trailing = {
+                            TextButton(
+                                onClick = {
+                                    openSystemPage(
+                                        ReminderReliability.notificationSettingsIntent(context)
+                                    )
+                                }
+                            ) {
+                                Text(if (notificationsReady) "查看" else "去开启")
+                            }
+                        }
+                    )
+                    ItemDivider()
+                    SettingRow(
+                        title = "后台运行",
+                        description = if (batteryUnrestricted) {
+                            "不受电池优化限制"
+                        } else {
+                            "受电池优化限制，清理后台后闹钟可能失效"
+                        },
+                        descriptionColor = if (batteryUnrestricted) {
+                            muted
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                        trailing = {
+                            TextButton(
+                                onClick = {
+                                    openSystemPage(
+                                        ReminderReliability.batteryOptimizationIntent(context)
+                                    )
+                                }
+                            ) {
+                                Text(if (batteryUnrestricted) "查看" else "去设置")
+                            }
+                        }
+                    )
+                    if (showExactAlarmRow) {
+                        ItemDivider()
+                        SettingRow(
+                            title = "精确闹钟",
+                            description = if (exactAlarmAllowed) {
+                                "已允许，到点准点触发"
+                            } else {
+                                "未允许，系统可能延迟十几分钟"
+                            },
+                            descriptionColor = if (exactAlarmAllowed) {
+                                muted
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                            trailing = {
+                                TextButton(
+                                    onClick = {
+                                        ReminderReliability.exactAlarmSettingsIntent(context)
+                                            ?.let(openSystemPage)
+                                    }
+                                ) {
+                                    Text(if (exactAlarmAllowed) "查看" else "去开启")
+                                }
+                            }
+                        )
+                    }
+                    if (alarmVolumeSilent) {
+                        ItemDivider()
+                        SettingRow(
+                            title = "闹钟音量",
+                            description = "当前为静音，响铃会听不到声音",
+                            descriptionColor = MaterialTheme.colorScheme.error,
+                            trailing = {
+                                TextButton(
+                                    onClick = {
+                                        openSystemPage(ReminderReliability.soundSettingsIntent())
+                                    }
+                                ) { Text("去设置") }
+                            }
+                        )
+                    }
+                    ItemDivider()
+                    SettingRow(
+                        title = "自启动白名单",
+                        description = "部分手机清理后台后需允许自启动才能继续提醒",
+                        trailing = {
+                            TextButton(
+                                onClick = {
+                                    openSystemPage(
+                                        ReminderReliability.autoStartSettingsIntent(context)
+                                    )
+                                }
+                            ) { Text("去设置") }
+                        }
+                    )
+                    ItemDivider()
+                    SettingRow(
+                        title = "测试响铃",
+                        description = "立即响铃 10 秒，验证铃声与通知栏的「停止响铃」",
+                        trailing = {
+                            TextButton(
+                                onClick = {
+                                    val started = runCatching {
+                                        ReminderRingService.start(
+                                            context = context,
+                                            type = currentReminderType,
+                                            thresholdMinutes = settings.reminderMinutes,
+                                            ringtoneUri = settings.reminderRingtoneUri,
+                                            durationMs = 10_000L
+                                        )
+                                    }.isSuccess
+                                    if (!started) {
+                                        Toast.makeText(
+                                            context,
+                                            "响铃启动失败，请检查通知与后台权限",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
+                            ) { Text("试响") }
+                        }
+                    )
+                }
+            }
+        }
     }
+}
+
+/** 沿 ContextWrapper 链找到宿主 Activity 的 LifecycleOwner，供页面监听 ON_RESUME */
+private fun Context.findActivityLifecycleOwner(): LifecycleOwner? {
+    var current: Context? = this
+    while (current != null) {
+        if (current is LifecycleOwner) return current
+        current = (current as? ContextWrapper)?.baseContext
+    }
+    return null
 }
 
 /** 释放不再使用的本地音频读取授权，避免持久化授权越积越多 */

@@ -35,8 +35,9 @@ object ReminderScheduler {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
         val pending = pendingIntent(context, type, thresholdMinutes, date, ring, ringtoneUri)
         val triggerAt = triggerAtMillis.coerceAtLeast(System.currentTimeMillis() + 1_000)
-        runCatching {
-            if (canScheduleExact(manager)) {
+        val exact = canScheduleExact(manager)
+        val scheduled = runCatching {
+            if (exact) {
                 // setAlarmClock 是系统眼中"用户闹钟"级别的精确闹钟：Doze 下也会准点唤醒，
                 // 同时满足 Android 12+ 从后台启动前台服务（响铃）的豁免条件
                 manager.setAlarmClock(
@@ -45,6 +46,24 @@ object ReminderScheduler {
                 )
             } else {
                 // 未获精确闹钟权限时退化为允许空闲唤醒，仍尽量准时
+                manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+            }
+            true
+        }.getOrDefault(false)
+        if (scheduled) return
+
+        // 个别 ROM 在精确闹钟可用性上自相矛盾（canScheduleExactAlarms 为 true 但 setAlarmClock 抛异常），
+        // 先尝试精确兜底，仍失败就用不精确闹钟，宁可晚一点也不要丢失提醒
+        val exactFallback = runCatching {
+            if (exact) {
+                manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+            } else {
+                manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+            }
+            true
+        }.getOrDefault(false)
+        if (!exactFallback) {
+            runCatching {
                 manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
             }
         }
@@ -57,6 +76,13 @@ object ReminderScheduler {
         )
         manager.cancel(pending)
         pending.cancel()
+    }
+
+    /** 当前系统是否允许精确闹钟；设置页据此提示用户授权 */
+    fun canScheduleExactAlarms(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        val manager = context.getSystemService(AlarmManager::class.java) ?: return false
+        return manager.canScheduleExactAlarms()
     }
 
     private fun canScheduleExact(manager: AlarmManager): Boolean =

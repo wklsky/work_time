@@ -5,6 +5,7 @@
  */
 package com.worktime.pro
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.fadeIn
@@ -113,6 +114,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         // 用户已打开应用，视为看到了提醒，停止仍在响的闹钟
+        ReminderRingService.stop(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 应用已在前台时点击通知只会回调 onNewIntent（不会走 onResume），同样要停止响铃
         ReminderRingService.stop(this)
     }
 

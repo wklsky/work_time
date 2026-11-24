@@ -1,7 +1,7 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/main/java/com/worktime/pro/domain/reminder/ReminderBootReceiver.kt
- * @Description: 开机/应用更新后重新排定工时提醒，避免系统清空闹钟后失效
+ * @Description: 开机/应用更新/系统时间变更后重新排定工时提醒，避免系统清空或移动闹钟后失效
  */
 package com.worktime.pro.domain.reminder
 
@@ -23,7 +23,9 @@ class ReminderBootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
-            intent.action != Intent.ACTION_MY_PACKAGE_REPLACED
+            intent.action != Intent.ACTION_MY_PACKAGE_REPLACED &&
+            intent.action != Intent.ACTION_TIME_CHANGED &&
+            intent.action != Intent.ACTION_TIMEZONE_CHANGED
         ) {
             return
         }

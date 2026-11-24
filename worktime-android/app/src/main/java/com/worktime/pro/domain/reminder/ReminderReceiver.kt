@@ -25,11 +25,12 @@ class ReminderReceiver : BroadcastReceiver() {
 
         if (intent.getBooleanExtra(ReminderScheduler.EXTRA_RING, false)) {
             val ringtoneUri = intent.getStringExtra(ReminderScheduler.EXTRA_RINGTONE).orEmpty()
-            // 后台启动前台服务可能被系统拦截（未授予精确闹钟权限等），失败时退回普通通知
+            // 后台启动前台服务可能被系统拦截（未授予精确闹钟权限、ROM 限制自启动等），
+            // 失败时退回带闹钟音的普通通知，至少让用户听得到
             val started = runCatching {
                 ReminderRingService.start(context, type, threshold, ringtoneUri)
             }.isSuccess
-            if (!started) ReminderNotification.show(context, type, threshold)
+            if (!started) ReminderNotification.showLoud(context, type, threshold)
         } else {
             ReminderNotification.show(context, type, threshold)
         }
