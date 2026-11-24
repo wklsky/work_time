@@ -1,6 +1,6 @@
 # WorkTime Pro · 智能工时与加班管理系统（单机版）
 
-[![Version](https://img.shields.io/badge/version-2.3.0-blue)](https://github.com)
+[![Version](https://img.shields.io/badge/version-2.3.1-blue)](https://github.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0+-purple)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/Compose-Material3-green)](https://developer.android.com/jetpack/compose)
 
@@ -8,8 +8,8 @@
 
 **零后端、零服务器，数据完全留在手机本地。** 联网仅用于检查应用更新。
 
-> 最近更新：2026-11-24 · 更新检查与下载支持多源自动切换（GitHub API → jsDelivr 镜像 → 加速代理），
-> 国内弱网环境下更新成功率显著提升 · 文档补充镜像源维护说明
+> 最近更新：2026-11-24 · 修复「选择年月」「自定义统计区间」弹层确认按钮被底部手势导航条遮挡的问题，
+> 三个底部弹层统一采用固定安全间距避让策略
 
 ---
 

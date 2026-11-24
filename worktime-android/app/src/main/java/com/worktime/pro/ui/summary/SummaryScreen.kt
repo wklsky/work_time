@@ -315,6 +315,14 @@ fun SummaryScreen(
 private enum class RangeField { START, END }
 
 /**
+ * 「应用区间」按钮底部安全间距。
+ * Dialog 在 edge-to-edge 窗口里 navigationBarsPadding 常拿不到导航栏 insets（退化为 0），
+ * 仅靠内容 padding 会让按钮贴住手势条被遮挡或误触，这里用固定间距兜底把按钮整体上移，
+ * 与「校时」「选择年月」弹层保持一致的避让策略。
+ */
+private val CONFIRM_BUTTON_BOTTOM_INSET = 56.dp
+
+/**
  * 自定义统计区间弹层：两个大号日期读数 + 常用区间快捷键，
  * 与「校时」弹层同一套底部纸面与眉标语言，避免不同功能长得像两个 App。
  */
@@ -354,7 +362,7 @@ private fun CustomRangeSheet(
                         .navigationBarsPadding()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 20.dp)
-                        .padding(top = 18.dp, bottom = 20.dp)
+                        .padding(top = 18.dp)
                 ) {
                     Row(verticalAlignment = Alignment.Top) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -411,7 +419,10 @@ private fun CustomRangeSheet(
                     Spacer(Modifier.height(18.dp))
                     Button(
                         onClick = onApply,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = CONFIRM_BUTTON_BOTTOM_INSET)
+                            .height(52.dp),
                         shape = MaterialTheme.shapes.medium
                     ) {
                         Text(
