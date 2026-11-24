@@ -56,6 +56,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
 import com.worktime.pro.data.datastore.ClockDialStyle
+import com.worktime.pro.data.datastore.ReminderMode
 import com.worktime.pro.data.datastore.ThemeMode
 import com.worktime.pro.data.datastore.TimeFormatMode
 import com.worktime.pro.domain.model.PunchType
@@ -348,9 +349,12 @@ fun SettingsReminderScreen(
         }
     }
 
+    // 三选项里只有「仅震动」不需要铃声，用它控制铃声行的显示
+    val currentMode = ReminderMode.fromValue(settings.reminderMode)
+
     SettingsPage(
         title = "提醒",
-        subtitle = "累计工时达标后提醒，可选闹钟响铃",
+        subtitle = "累计工时达标后提醒，可选响铃、仅震动或跟随系统",
         onBack = onBack
     ) {
         SettingsGroupCard {
@@ -388,7 +392,7 @@ fun SettingsReminderScreen(
                     ItemDivider()
                     SwitchRow(
                         title = "响铃提醒",
-                        description = "到点用闹钟音量循环响铃并震动，最多 60 秒；可在通知里停止",
+                        description = "到点持续提醒最多 60 秒；可在通知里停止，声音与震动方式见下方",
                         checked = settings.reminderRingEnabled,
                         onCheckedChange = { enabled ->
                             viewModel.setReminderRingEnabled(enabled)
@@ -404,44 +408,65 @@ fun SettingsReminderScreen(
                     AnimatedVisibility(visible = settings.reminderRingEnabled) {
                         Column {
                             ItemDivider()
-                            SettingRow(
-                                title = "提醒铃声",
-                                description = if (settings.reminderRingtoneUri.isBlank()) {
-                                    "系统默认闹钟 · 点击选择本地音频"
-                                } else {
-                                    "${settings.reminderRingtoneName.ifBlank { "本地音频" }} · 点击更换"
-                                },
-                                onClick = { ringtoneLauncher.launch(arrayOf("audio/*")) },
-                                trailing = {
-                                    if (settings.reminderRingtoneUri.isNotBlank()) {
-                                        TextButton(
-                                            onClick = {
-                                                releaseRingtonePermission(
-                                                    context,
-                                                    settings.reminderRingtoneUri
-                                                )
-                                                viewModel.clearReminderRingtone()
-                                            }
-                                        ) {
-                                            Text("恢复默认")
-                                        }
-                                    } else {
-                                        TextButton(
-                                            onClick = {
-                                                ringtoneLauncher.launch(arrayOf("audio/*"))
-                                            }
-                                        ) {
-                                            Text("选择")
-                                        }
-                                    }
+                            ChipBlock(title = "提醒方式") {
+                                ReminderMode.entries.forEach { mode ->
+                                    FilterChip(
+                                        selected = settings.reminderMode == mode.value,
+                                        onClick = { viewModel.setReminderMode(mode) },
+                                        label = { Text(mode.label) }
+                                    )
                                 }
-                            )
+                            }
                             Text(
-                                "支持选择手机里的音频文件；文件被删除或换机恢复备份后会回退到系统默认铃声。",
+                                currentMode.summary,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            // 仅震动模式不发声，铃声选择对用户无意义，直接隐藏避免误解
+                            AnimatedVisibility(visible = currentMode != ReminderMode.VIBRATE_ONLY) {
+                                Column {
+                                    ItemDivider()
+                                    SettingRow(
+                                        title = "提醒铃声",
+                                        description = if (settings.reminderRingtoneUri.isBlank()) {
+                                            "系统默认闹钟 · 点击选择本地音频"
+                                        } else {
+                                            "${settings.reminderRingtoneName.ifBlank { "本地音频" }} · 点击更换"
+                                        },
+                                        onClick = { ringtoneLauncher.launch(arrayOf("audio/*")) },
+                                        trailing = {
+                                            if (settings.reminderRingtoneUri.isNotBlank()) {
+                                                TextButton(
+                                                    onClick = {
+                                                        releaseRingtonePermission(
+                                                            context,
+                                                            settings.reminderRingtoneUri
+                                                        )
+                                                        viewModel.clearReminderRingtone()
+                                                    }
+                                                ) {
+                                                    Text("恢复默认")
+                                                }
+                                            } else {
+                                                TextButton(
+                                                    onClick = {
+                                                        ringtoneLauncher.launch(arrayOf("audio/*"))
+                                                    }
+                                                ) {
+                                                    Text("选择")
+                                                }
+                                            }
+                                        }
+                                    )
+                                    Text(
+                                        "支持选择手机里的音频文件；文件被删除或换机恢复备份后会回退到系统默认铃声。",
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -566,8 +591,8 @@ fun SettingsReminderScreen(
                     )
                     ItemDivider()
                     SettingRow(
-                        title = "测试响铃",
-                        description = "立即响铃 10 秒，验证铃声与通知栏的「停止响铃」",
+                        title = "测试提醒",
+                        description = "按当前提醒方式立即试一次 10 秒，验证铃声/震动与通知栏的「停止响铃」",
                         trailing = {
                             TextButton(
                                 onClick = {
@@ -577,6 +602,7 @@ fun SettingsReminderScreen(
                                             type = currentReminderType,
                                             thresholdMinutes = settings.reminderMinutes,
                                             ringtoneUri = settings.reminderRingtoneUri,
+                                            mode = settings.reminderMode,
                                             durationMs = 10_000L
                                         )
                                     }.isSuccess

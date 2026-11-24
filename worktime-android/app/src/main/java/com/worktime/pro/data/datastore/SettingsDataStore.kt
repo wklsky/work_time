@@ -43,6 +43,21 @@ enum class ThemeMode(val value: String, val label: String) {
 }
 
 /**
+ * 提醒方式：控制到点提醒时是否出声。
+ * 三种方式都保留震动——工时提醒需要在口袋里被感知，声音是否可闻交给用户按场景决定。
+ */
+enum class ReminderMode(val value: String, val label: String, val summary: String) {
+    SOUND_VIBRATE("SOUND_VIBRATE", "声音 + 震动", "用闹钟音量循环响铃，同时震动"),
+    VIBRATE_ONLY("VIBRATE_ONLY", "仅震动", "不播放声音，只按节奏震动，适合会议与夜间"),
+    FOLLOW_SYSTEM("FOLLOW_SYSTEM", "跟随系统", "手机静音或仅震动时只震动，正常模式响铃并震动");
+
+    companion object {
+        fun fromValue(value: String): ReminderMode =
+            entries.firstOrNull { it.value == value } ?: SOUND_VIBRATE
+    }
+}
+
+/**
  * 时间选择器表盘数字样式：控制模拟表盘刻度数字的呈现风格。
  * 只影响表盘一圈的刻度文字，大号读数与确认按钮始终保留阿拉伯数字，保证工时精确可读。
  */
@@ -100,6 +115,8 @@ data class AppSettings(
     val reminderMinutes: Int = 420,
     /** 到点用闹钟音量循环响铃并震动，而不是只发一条普通通知 */
     val reminderRingEnabled: Boolean = true,
+    /** 响铃时的提醒方式：声音+震动 / 仅震动 / 跟随系统 */
+    val reminderMode: String = ReminderMode.SOUND_VIBRATE.value,
     /** 自定义铃声的 content URI；空串表示使用系统默认闹钟铃声 */
     val reminderRingtoneUri: String = "",
     /** 自定义铃声的显示名，仅用于设置页展示 */
@@ -125,6 +142,7 @@ class SettingsDataStore(private val context: Context) {
         val REMINDER_TYPE = stringPreferencesKey("reminder_type")
         val REMINDER_MINUTES = intPreferencesKey("reminder_minutes")
         val REMINDER_RING_ENABLED = booleanPreferencesKey("reminder_ring_enabled")
+        val REMINDER_MODE = stringPreferencesKey("reminder_mode")
         val REMINDER_RINGTONE_URI = stringPreferencesKey("reminder_ringtone_uri")
         val REMINDER_RINGTONE_NAME = stringPreferencesKey("reminder_ringtone_name")
         val LAST_REMINDER_KEY = stringPreferencesKey("last_reminder_key")
@@ -147,6 +165,7 @@ class SettingsDataStore(private val context: Context) {
             reminderType = prefs[Keys.REMINDER_TYPE] ?: ReminderType.OVERTIME.value,
             reminderMinutes = prefs[Keys.REMINDER_MINUTES] ?: 420,
             reminderRingEnabled = prefs[Keys.REMINDER_RING_ENABLED] ?: true,
+            reminderMode = prefs[Keys.REMINDER_MODE] ?: ReminderMode.SOUND_VIBRATE.value,
             reminderRingtoneUri = prefs[Keys.REMINDER_RINGTONE_URI] ?: "",
             reminderRingtoneName = prefs[Keys.REMINDER_RINGTONE_NAME] ?: "",
             lastReminderKey = prefs[Keys.LAST_REMINDER_KEY] ?: ""
@@ -200,6 +219,10 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun setReminderRingEnabled(enabled: Boolean) =
         context.dataStore.edit { it[Keys.REMINDER_RING_ENABLED] = enabled }
+
+    /** 未知值一律回落到默认的「声音 + 震动」，避免脏数据把提醒变成静音 */
+    suspend fun setReminderMode(value: String) =
+        context.dataStore.edit { it[Keys.REMINDER_MODE] = ReminderMode.fromValue(value).value }
 
     suspend fun setReminderRingtone(uri: String, name: String) =
         context.dataStore.edit {

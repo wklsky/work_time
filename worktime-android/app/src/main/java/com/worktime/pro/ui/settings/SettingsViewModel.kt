@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.worktime.pro.data.datastore.CalendarDisplayMode
 import com.worktime.pro.data.datastore.ClockDialStyle
+import com.worktime.pro.data.datastore.ReminderMode
 import com.worktime.pro.data.datastore.SettingsDataStore
 import com.worktime.pro.domain.model.PunchType
 import com.worktime.pro.domain.reminder.ReminderType
@@ -60,6 +61,10 @@ class SettingsViewModel(
 
     fun setReminderRingEnabled(enabled: Boolean) {
         viewModelScope.launch { settings.setReminderRingEnabled(enabled) }
+    }
+
+    fun setReminderMode(mode: ReminderMode) {
+        viewModelScope.launch { settings.setReminderMode(mode.value) }
     }
 
     fun setReminderRingtone(uri: String, name: String) {

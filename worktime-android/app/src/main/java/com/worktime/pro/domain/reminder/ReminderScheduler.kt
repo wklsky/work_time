@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.worktime.pro.MainActivity
+import com.worktime.pro.data.datastore.ReminderMode
 import java.time.LocalDate
 
 object ReminderScheduler {
@@ -22,6 +23,7 @@ object ReminderScheduler {
     const val EXTRA_DATE = "extra_reminder_date"
     const val EXTRA_RING = "extra_reminder_ring"
     const val EXTRA_RINGTONE = "extra_reminder_ringtone"
+    const val EXTRA_MODE = "extra_reminder_mode"
 
     fun schedule(
         context: Context,
@@ -30,10 +32,11 @@ object ReminderScheduler {
         thresholdMinutes: Int,
         date: LocalDate,
         ring: Boolean,
+        mode: String,
         ringtoneUri: String
     ) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
-        val pending = pendingIntent(context, type, thresholdMinutes, date, ring, ringtoneUri)
+        val pending = pendingIntent(context, type, thresholdMinutes, date, ring, mode, ringtoneUri)
         val triggerAt = triggerAtMillis.coerceAtLeast(System.currentTimeMillis() + 1_000)
         val exact = canScheduleExact(manager)
         val scheduled = runCatching {
@@ -71,8 +74,10 @@ object ReminderScheduler {
 
     fun cancel(context: Context) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
+        // 取消只比对组件与 requestCode，附加参数用默认值即可
         val pending = pendingIntent(
-            context, ReminderType.OVERTIME, 0, LocalDate.now(), false, ""
+            context, ReminderType.OVERTIME, 0, LocalDate.now(), false,
+            ReminderMode.SOUND_VIBRATE.value, ""
         )
         manager.cancel(pending)
         pending.cancel()
@@ -105,6 +110,7 @@ object ReminderScheduler {
         thresholdMinutes: Int,
         date: LocalDate,
         ring: Boolean,
+        mode: String,
         ringtoneUri: String
     ): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
@@ -112,6 +118,7 @@ object ReminderScheduler {
             putExtra(EXTRA_THRESHOLD, thresholdMinutes)
             putExtra(EXTRA_DATE, date.toString())
             putExtra(EXTRA_RING, ring)
+            putExtra(EXTRA_MODE, mode)
             putExtra(EXTRA_RINGTONE, ringtoneUri)
         }
         return PendingIntent.getBroadcast(

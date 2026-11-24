@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
@@ -24,6 +25,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.worktime.pro.data.datastore.ReminderMode
 import java.io.File
 
 class ReminderRingService : Service() {
@@ -41,6 +43,7 @@ class ReminderRingService : Service() {
         private const val EXTRA_TYPE = "extra_ring_type"
         private const val EXTRA_THRESHOLD = "extra_ring_threshold"
         private const val EXTRA_RINGTONE = "extra_ring_ringtone"
+        private const val EXTRA_MODE = "extra_ring_mode"
         private const val EXTRA_DURATION = "extra_ring_duration"
 
         /** 最长响铃时长，避免用户没注意到时一直响 */
@@ -51,6 +54,7 @@ class ReminderRingService : Service() {
             type: ReminderType,
             thresholdMinutes: Int,
             ringtoneUri: String,
+            mode: String = ReminderMode.SOUND_VIBRATE.value,
             durationMs: Long = DEFAULT_RING_DURATION_MS
         ) {
             val intent = Intent(context, ReminderRingService::class.java).apply {
@@ -58,6 +62,7 @@ class ReminderRingService : Service() {
                 putExtra(EXTRA_TYPE, type.value)
                 putExtra(EXTRA_THRESHOLD, thresholdMinutes)
                 putExtra(EXTRA_RINGTONE, ringtoneUri)
+                putExtra(EXTRA_MODE, mode)
                 putExtra(EXTRA_DURATION, durationMs)
             }
             ContextCompat.startForegroundService(context, intent)
@@ -76,6 +81,7 @@ class ReminderRingService : Service() {
     private val stopRunnable = Runnable { stopSelf() }
     private var mediaPlayer: MediaPlayer? = null
     private var stopAfterMs = DEFAULT_RING_DURATION_MS
+    private var mode = ReminderMode.SOUND_VIBRATE
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
     /** 服务销毁后回调可能仍在队列里，用它阻止迟到的回调重新拉起播放 */
@@ -103,6 +109,7 @@ class ReminderRingService : Service() {
         }
         stopAfterMs = (intent?.getLongExtra(EXTRA_DURATION, DEFAULT_RING_DURATION_MS)
             ?: DEFAULT_RING_DURATION_MS).coerceIn(1_000L, 5 * 60_000L)
+        mode = ReminderMode.fromValue(intent?.getStringExtra(EXTRA_MODE).orEmpty())
 
         // 前台服务通知必须尽快发出，否则系统会判定启动超时
         val foregroundStarted = runCatching {
@@ -149,9 +156,23 @@ class ReminderRingService : Service() {
         acquireWakeLock(stopAfterMs + 5_000L)
         // 先震动再准备音频：MediaPlayer 首次初始化有耗时，震动先给用户即时反馈
         startVibration()
-        if (mediaPlayer == null) playFirstAvailable(ringtoneUri)
+        if (mediaPlayer == null && shouldPlaySound()) playFirstAvailable(ringtoneUri)
         stopHandler.removeCallbacks(stopRunnable)
         stopHandler.postDelayed(stopRunnable, stopAfterMs)
+    }
+
+    /**
+     * 本次是否出声。仅震动模式直接静音；跟随系统在触发时刻读取铃声模式，
+     * 静音/震动时只震不响，正常模式响铃——勿扰是否放行交给系统按闹钟类别判定，
+     * 三方闹钟应用自行改写静音策略容易与用户预期冲突。
+     */
+    private fun shouldPlaySound(): Boolean = when (mode) {
+        ReminderMode.SOUND_VIBRATE -> true
+        ReminderMode.VIBRATE_ONLY -> false
+        ReminderMode.FOLLOW_SYSTEM -> {
+            val audio = getSystemService(AudioManager::class.java)
+            audio == null || audio.ringerMode == AudioManager.RINGER_MODE_NORMAL
+        }
     }
 
     /**

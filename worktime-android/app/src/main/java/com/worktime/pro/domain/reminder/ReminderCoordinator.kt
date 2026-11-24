@@ -67,6 +67,7 @@ class ReminderCoordinator(
                         thresholdMinutes = plan.thresholdMinutes,
                         date = plan.date,
                         ring = plan.ring,
+                        mode = plan.mode.value,
                         ringtoneUri = plan.ringtoneUri
                     )
                 } else {

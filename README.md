@@ -1,6 +1,6 @@
 # WorkTime Pro · 智能工时与加班管理系统（单机版）
 
-[![Version](https://img.shields.io/badge/version-2.4.0-blue)](https://github.com)
+[![Version](https://img.shields.io/badge/version-2.5.1-blue)](https://github.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0+-purple)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/Compose-Material3-green)](https://developer.android.com/jetpack/compose)
 
@@ -8,8 +8,8 @@
 
 **零后端、零服务器，数据完全留在手机本地。** 联网仅用于检查应用更新。
 
-> 最近更新：2026-11-24 · 修复「选择年月」「自定义统计区间」弹层确认按钮被底部手势导航条遮挡的问题，
-> 三个底部弹层统一采用固定安全间距避让策略
+> 最近更新：2026-11-24 · 新增提醒方式三选项：声音 + 震动 / 仅震动 / 跟随系统，
+> 会议与夜间可完全静音提醒
 
 ---
 
@@ -183,7 +183,8 @@ gradlew.bat :app:assembleRelease
 
 **提醒与规则**
 - **工时提醒**：按加班 / 正常工时 / 净投入设定累计阈值（如加班满 7 小时），达到后发送系统通知；
-  可选**响铃提醒**，用闹钟音频流循环响铃并震动最多 60 秒，通知内可停止，
+  可选**响铃提醒**，持续提醒最多 60 秒、通知内可停止；响铃方式三选一：
+  **声音 + 震动** / **仅震动**（完全静音，适合会议与夜间）/ **跟随系统**（静音或震动模式下只震动），
   铃声支持从本地音频文件中选择；
   退到后台由系统精确闹钟触发，开机/应用更新/系统时间变更后自动重排，同一天同一阈值不重复通知；
   提醒页内置**可靠性自检**（通知权限 / 电池优化 / 精确闹钟 / 自启动白名单 / 测试响铃），

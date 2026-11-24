@@ -8,6 +8,7 @@ package com.worktime.pro.domain.reminder
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.worktime.pro.data.datastore.ReminderMode
 import com.worktime.pro.data.datastore.SettingsDataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,12 +26,21 @@ class ReminderReceiver : BroadcastReceiver() {
 
         if (intent.getBooleanExtra(ReminderScheduler.EXTRA_RING, false)) {
             val ringtoneUri = intent.getStringExtra(ReminderScheduler.EXTRA_RINGTONE).orEmpty()
+            val mode = ReminderMode.fromValue(
+                intent.getStringExtra(ReminderScheduler.EXTRA_MODE).orEmpty()
+            )
             // 后台启动前台服务可能被系统拦截（未授予精确闹钟权限、ROM 限制自启动等），
-            // 失败时退回带闹钟音的普通通知，至少让用户听得到
+            // 失败时退回通知：用户选了仅震动就不能再响，否则退回带闹钟音的强提醒
             val started = runCatching {
-                ReminderRingService.start(context, type, threshold, ringtoneUri)
+                ReminderRingService.start(context, type, threshold, ringtoneUri, mode.value)
             }.isSuccess
-            if (!started) ReminderNotification.showLoud(context, type, threshold)
+            if (!started) {
+                if (mode == ReminderMode.VIBRATE_ONLY) {
+                    ReminderNotification.show(context, type, threshold)
+                } else {
+                    ReminderNotification.showLoud(context, type, threshold)
+                }
+            }
         } else {
             ReminderNotification.show(context, type, threshold)
         }

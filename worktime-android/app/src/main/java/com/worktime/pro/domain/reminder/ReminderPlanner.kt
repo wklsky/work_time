@@ -6,6 +6,7 @@
 package com.worktime.pro.domain.reminder
 
 import com.worktime.pro.data.datastore.AppSettings
+import com.worktime.pro.data.datastore.ReminderMode
 import com.worktime.pro.data.db.PunchEventEntity
 import com.worktime.pro.data.db.WorkSessionEntity
 import com.worktime.pro.data.db.toDayTotals
@@ -22,6 +23,8 @@ data class ReminderPlan(
     val date: LocalDate,
     /** true 时到点用闹钟音频流响铃，false 时只发普通通知 */
     val ring: Boolean,
+    /** 响铃方式：声音+震动 / 仅震动 / 跟随系统 */
+    val mode: ReminderMode,
     /** 自定义铃声 URI；空串表示系统默认闹钟铃声 */
     val ringtoneUri: String
 )
@@ -94,6 +97,7 @@ object ReminderPlanner {
             triggerAtMillis = triggerAt,
             date = date,
             ring = settings.reminderRingEnabled,
+            mode = ReminderMode.fromValue(settings.reminderMode),
             ringtoneUri = settings.reminderRingtoneUri
         )
     }
