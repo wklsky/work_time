@@ -5,6 +5,7 @@
  */
 package com.worktime.pro.domain.update
 
+import android.app.DownloadManager
 import android.content.Context
 import com.worktime.pro.BuildConfig
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +39,9 @@ class UpdateManager(
     private var checking = false
     private var downloadJob: Job? = null
 
+    /** 当前下载使用的候选地址序号，GitHub 直链失败后自动切到加速代理 */
+    private var downloadAttemptIndex = 0
+
     /** 冷启动静默检查：24 小时内只查一次，失败或已是最新都不打扰用户 */
     fun checkOnLaunch() {
         if (withinCooldown()) return
@@ -57,7 +61,14 @@ class UpdateManager(
             _state.value = UpdateUiState.NeedPermission(info)
             return
         }
-        val downloadId = UpdateInstaller.enqueue(context, info)
+        downloadAttemptIndex = 0
+        enqueueDownload(info)
+    }
+
+    /** 按当前尝试序号从候选列表取源发起下载；候选列表为空说明数据源异常，不发起下载 */
+    private fun enqueueDownload(info: UpdateInfo) {
+        val url = info.downloadUrls.getOrNull(downloadAttemptIndex) ?: return
+        val downloadId = UpdateInstaller.enqueue(context, info, url)
         if (downloadId == null) {
             _state.value = UpdateUiState.Failed("无法启动下载，请检查网络后重试")
             return
@@ -104,7 +115,14 @@ class UpdateManager(
             while (isActive) {
                 val progress = UpdateInstaller.query(context, downloadId)
                 if (progress.failed) {
-                    // reason 为空说明系统未给出可读原因，多为网络中断，提示用户改用浏览器下载兜底
+                    // 业务流转要求：直连 GitHub 不稳定是常态，失败先静默换下一个加速代理源重试，
+                    // 候选耗尽才向用户报错并引导浏览器下载兜底。失败任务先移除，避免 DownloadManager 里堆积废记录
+                    removeDownload(downloadId)
+                    if (downloadAttemptIndex + 1 < info.downloadUrls.size) {
+                        downloadAttemptIndex++
+                        enqueueDownload(info)
+                        return@launch
+                    }
                     _state.value = UpdateUiState.Failed(
                         progress.reason ?: "下载失败，请检查网络后重试，或改用浏览器下载"
                     )
@@ -134,6 +152,11 @@ class UpdateManager(
             InstallResult.NeedPermission -> UpdateUiState.NeedPermission(info)
             is InstallResult.Failed -> UpdateUiState.Failed(result.message)
         }
+    }
+
+    private fun removeDownload(downloadId: Long) {
+        val manager = context.getSystemService(DownloadManager::class.java) ?: return
+        runCatching { manager.remove(downloadId) }
     }
 
     private fun withinCooldown(): Boolean {

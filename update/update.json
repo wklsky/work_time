@@ -1,0 +1,6 @@
+{
+  "versionName": "2.3.0",
+  "notes": "更新检查与下载支持多源自动切换（GitHub API → jsDelivr 镜像 → 加速代理），显著提升国内网络环境下的更新成功率",
+  "apkUrl": "https://github.com/wklsky/work_time/releases/download/v2.3.0/WorkTime.apk",
+  "sizeBytes": 0
+}

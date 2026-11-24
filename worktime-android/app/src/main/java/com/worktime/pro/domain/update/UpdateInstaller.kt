@@ -35,13 +35,14 @@ object UpdateInstaller {
     /**
      * 用系统 DownloadManager 而不是自己写流：62MB 的包需要断点续传与后台下载能力，
      * 进程被杀也不中断，通知栏进度也省掉自绘。
+     * 下载地址由上层从 [UpdateInfo.downloadUrls] 候选列表按当前尝试序号传入，失败后换源重试。
      */
-    fun enqueue(context: Context, info: UpdateInfo): Long? {
+    fun enqueue(context: Context, info: UpdateInfo, apkUrl: String): Long? {
         val manager = context.getSystemService(DownloadManager::class.java) ?: return null
         // 同版本重复点击时先删旧文件，避免 DownloadManager 因目标已存在而失败
         apkFile(context, info)?.takeIf { it.exists() }?.delete()
 
-        val request = DownloadManager.Request(Uri.parse(info.apkUrl)).apply {
+        val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
             setTitle("工时助手 ${info.versionName}")
             setDescription("正在下载更新包")
             setMimeType(APK_MIME)

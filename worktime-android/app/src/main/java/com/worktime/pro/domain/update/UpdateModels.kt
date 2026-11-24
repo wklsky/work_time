@@ -5,13 +5,14 @@
  */
 package com.worktime.pro.domain.update
 
-/** 从 GitHub Release 解析出的新版本信息 */
+/** 从 GitHub Release 或版本清单解析出的新版本信息 */
 data class UpdateInfo(
     /** tag 去掉 v 前缀后的版本号，如 2.1.0 */
     val versionName: String,
     /** Release 正文，作为更新说明展示 */
     val notes: String,
-    val apkUrl: String,
+    /** 候选下载地址，按优先级排列：GitHub 直链在前，加速代理在后，下载失败时逐个降级重试 */
+    val downloadUrls: List<String>,
     val sizeBytes: Long
 )
 

@@ -1,6 +1,6 @@
 # WorkTime Pro · 智能工时与加班管理系统（单机版）
 
-[![Version](https://img.shields.io/badge/version-2.2.0-blue)](https://github.com)
+[![Version](https://img.shields.io/badge/version-2.3.0-blue)](https://github.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0+-purple)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/Compose-Material3-green)](https://developer.android.com/jetpack/compose)
 
@@ -8,8 +8,8 @@
 
 **零后端、零服务器，数据完全留在手机本地。** 联网仅用于检查应用更新。
 
-> 最近更新：2026-11-23 · 加班段支持整段删除与编辑、习惯打卡移入日详情页一键写入当天、
-> 首页日历占满页面并适配多尺寸窗口（宽屏双栏/格子高度自适应）· 文档精简为设计文档与使用文档
+> 最近更新：2026-11-24 · 更新检查与下载支持多源自动切换（GitHub API → jsDelivr 镜像 → 加速代理），
+> 国内弱网环境下更新成功率显著提升 · 文档补充镜像源维护说明
 
 ---
 
@@ -83,7 +83,9 @@ adb shell am start -n com.worktime.pro/.MainActivity
 
 ## 发布与自动更新
 
-应用通过 GitHub Release 自查更新（`wklsky/work_time`，公开仓库），发布后老版本用户下次启动即收到提示。
+应用通过多源自查更新（`wklsky/work_time`，公开仓库）：优先读 GitHub Release API，失败后走 jsDelivr CDN 与代理 raw 读取仓库内 `update/update.json` 清单；APK 下载在 GitHub 直链失败后自动切换加速代理重试，全部失败再引导浏览器下载。发布后老版本用户下次启动即收到提示。
+
+> 国内手机直连 GitHub 不稳定，多源降级是为此设计的：检查与下载任一环节失败都会自动换下一个源，用户无感。
 
 ### 1. 生成发布密钥（仅首次）
 
@@ -115,10 +117,12 @@ gradlew.bat :app:assembleRelease
 ### 3. 发布到 GitHub
 
 1. 先改 `versionCode`（每次 +1）与 `versionName`（如 2.1.1）
-2. Releases → Draft a new release，tag 填 `v2.1.1`（必须与 `versionName` 一致；大小写 `V` 也兼容）
-3. 上传产物并命名为 `WorkTime.apk`——客户端按 `UpdateConfig.APK_ASSET_NAME` 精确匹配，
+2. 同步更新仓库根目录 `update/update.json`（versionName / notes / apkUrl 指向本次 tag 的下载直链），
+   随代码一起提交推送——这是 jsDelivr 镜像源的数据来源，漏更新会导致镜像源查不到新版本
+3. Releases → Draft a new release，tag 填 `v2.1.1`（必须与 `versionName` 一致；大小写 `V` 也兼容）
+4. 上传产物并命名为 `WorkTime.apk`——客户端按 `UpdateConfig.APK_ASSET_NAME` 精确匹配，
    改资产名就必须同步改该常量，否则 `releases/latest/download/` 固定直链兜底会 404
-4. 点 Publish release（草稿状态与预发布态 API 都查不到，务必勾选 latest）
+5. 点 Publish release（草稿状态与预发布态 API 都查不到，务必勾选 latest）
 
 ### 4. 更新机制
 
@@ -126,10 +130,17 @@ gradlew.bat :app:assembleRelease
 |------|------|
 | 冷启动 | 24 小时内最多查一次；有新版本弹窗，已是最新或请求失败均静默 |
 | 我的 → 检查更新 | 跳过节流，明确提示「已是最新」或失败原因 |
-| 下载 | 系统 `DownloadManager` 下载到应用私有目录，通知栏可见进度，断点续传 |
+| 检查数据源 | Release API → jsDelivr 清单 → 代理 raw 清单，依次降级，任一源成功即返回 |
+| 下载 | 系统 `DownloadManager` 下载到应用私有目录，通知栏可见进度，断点续传；失败自动换加速代理重试 |
 | 安装 | 首次需授权「安装未知应用」，之后下载完成自动拉起系统安装器 |
 
-> 未认证的 GitHub API 按 IP 限流 60 次/小时，共享出口 IP 下可能返回 403，已做静默降级。部分网络环境直连 GitHub 不稳定时，检查更新会提示失败但不影响其他功能。
+### 5. 镜像源维护
+
+- `update/update.json` 经 jsDelivr 分发有最长约 12 小时缓存，发版推送后新清单最多延迟半天生效；
+  可访问 `https://purge.jsdelivr.net/gh/wklsky/work_time@main/update/update.json` 手动刷新
+- APK 加速代理域名（`UpdateConfig.APK_PROXY_PREFIXES`）为第三方公益服务，可能随时间失效，
+  失效表现为下载自动重试后仍失败；发现全部不可用时更新该列表并随下个版本发布
+- 未认证的 GitHub API 按 IP 限流 60 次/小时，共享出口 IP 下可能返回 403，已做换源降级
 
 ---
 
