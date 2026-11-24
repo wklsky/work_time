@@ -1,6 +1,6 @@
 {
-  "versionName": "2.5.2",
-  "notes": "完善提醒体验：通知权限引导与置顶提示；锁屏/熄屏全屏提醒弹窗，可停止响铃或稍后 5/10/30 分钟；通知展示触发时累计时长并新增「稍后 10 分钟」；Android 14+ 支持闹钟弹窗授权",
-  "apkUrl": "https://github.com/wklsky/work_time/releases/download/v2.5.2/WorkTime.apk",
+  "versionName": "2.5.3",
+  "notes": "提醒简化：响铃固定跟随系统闹钟音量与默认闹钟铃声发声并震动，移除响铃方式与自定义铃声设置，移除「测试提醒」入口；兼容旧备份导入",
+  "apkUrl": "https://github.com/wklsky/work_time/releases/download/v2.5.3/WorkTime.apk",
   "sizeBytes": 0
 }

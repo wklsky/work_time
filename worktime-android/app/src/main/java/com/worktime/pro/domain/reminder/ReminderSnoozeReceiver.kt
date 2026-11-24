@@ -9,7 +9,6 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.worktime.pro.data.datastore.ReminderMode
 
 class ReminderSnoozeReceiver : BroadcastReceiver() {
 
@@ -25,8 +24,6 @@ class ReminderSnoozeReceiver : BroadcastReceiver() {
             thresholdMinutes: Int,
             currentMinutes: Int,
             ring: Boolean,
-            mode: String,
-            ringtoneUri: String,
             delayMinutes: Int = DEFAULT_DELAY_MINUTES
         ): PendingIntent {
             val intent = Intent(context, ReminderSnoozeReceiver::class.java).apply {
@@ -35,8 +32,6 @@ class ReminderSnoozeReceiver : BroadcastReceiver() {
                 putExtra(ReminderScheduler.EXTRA_THRESHOLD, thresholdMinutes)
                 putExtra(ReminderScheduler.EXTRA_CURRENT, currentMinutes)
                 putExtra(ReminderScheduler.EXTRA_RING, ring)
-                putExtra(ReminderScheduler.EXTRA_MODE, mode)
-                putExtra(ReminderScheduler.EXTRA_RINGTONE, ringtoneUri)
                 putExtra(EXTRA_DELAY_MINUTES, delayMinutes)
             }
             return PendingIntent.getBroadcast(
@@ -57,9 +52,6 @@ class ReminderSnoozeReceiver : BroadcastReceiver() {
         if (threshold <= 0) return
         val current = intent.getIntExtra(ReminderScheduler.EXTRA_CURRENT, threshold)
         val ring = intent.getBooleanExtra(ReminderScheduler.EXTRA_RING, true)
-        val mode = intent.getStringExtra(ReminderScheduler.EXTRA_MODE)
-            ?: ReminderMode.SOUND_VIBRATE.value
-        val ringtone = intent.getStringExtra(ReminderScheduler.EXTRA_RINGTONE).orEmpty()
         val delay = intent.getIntExtra(EXTRA_DELAY_MINUTES, DEFAULT_DELAY_MINUTES)
             .coerceIn(1, 180)
 
@@ -69,8 +61,6 @@ class ReminderSnoozeReceiver : BroadcastReceiver() {
             thresholdMinutes = threshold,
             currentMinutes = current,
             ring = ring,
-            mode = mode,
-            ringtoneUri = ringtone,
             delayMinutes = delay
         )
         // 稍后提醒会重新响铃，先把当前这次停掉并清掉原通知

@@ -28,7 +28,7 @@
 | 导航 | Navigation Compose 2.8 | 三 Tab + 子页面路由 |
 | 架构 | MVVM + 单向数据流 | ViewModel + StateFlow，手写 `ViewModelFactory` 注入 |
 | 本地库 | Room 2.6.1（KSP） | 3 张表持久化打卡、工时段与规则 |
-| 设置 | DataStore Preferences 1.1 | 本地偏好（19 个键，含打卡习惯、提醒方式与自定义铃声） |
+| 设置 | DataStore Preferences 1.1 | 本地偏好（16 个键，含打卡习惯、累计提醒阈值与响铃开关） |
 | 图表 | Compose Canvas 自绘 | 未引入第三方图表库，包体更小 |
 | 提醒 | AlarmManager（setAlarmClock）+ Notification + 前台服务 + 全屏 Activity | 精确闹钟准点唤醒，可选闹钟音频流循环响铃；锁屏/熄屏弹出停止界面，通知栏支持停止与稍后提醒；无 WorkManager 依赖，开机/更新/时间变更后自动重排；设置页提供可靠性自检 |
 | 更新 | GitHub Releases API + DownloadManager | 原生 `HttpURLConnection` + `org.json`，未新增网络库 |
@@ -54,7 +54,7 @@ data/db（Room） + data/datastore（设置与习惯）
 - `PunchEventEntity`：打卡事件（日期键、类型、时刻、来源、备注）
 - `WorkSessionEntity`：聚合产物缓存（正常/加班分钟数、段数），随重算刷新
 - `WorkRuleEntity`：工作规则（上下班、午休、缓冲、日切时间、工作日）
-- DataStore：19 个设置键（显示模式、刻度样式、字号、提醒阈值/响铃开关/提醒方式/自定义铃声、打卡习惯 JSON 等）
+- DataStore：16 个设置键（显示模式、刻度样式、字号、提醒阈值/响铃开关、打卡习惯 JSON 等）
 - 备份格式：本地 JSON（驼峰键 + 无照片），导入导出全量互换
 
 ---

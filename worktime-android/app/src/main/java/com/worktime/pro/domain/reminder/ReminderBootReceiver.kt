@@ -59,9 +59,7 @@ class ReminderBootReceiver : BroadcastReceiver() {
                         thresholdMinutes = plan.thresholdMinutes,
                         currentMinutes = plan.currentMinutes,
                         date = plan.date,
-                        ring = plan.ring,
-                        mode = plan.mode.value,
-                        ringtoneUri = plan.ringtoneUri
+                        ring = plan.ring
                     )
                 } else {
                     ReminderScheduler.cancel(appContext)

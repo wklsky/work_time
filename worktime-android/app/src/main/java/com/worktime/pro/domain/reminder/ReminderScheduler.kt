@@ -11,7 +11,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.worktime.pro.MainActivity
-import com.worktime.pro.data.datastore.ReminderMode
 import java.time.LocalDate
 
 object ReminderScheduler {
@@ -25,8 +24,6 @@ object ReminderScheduler {
     const val EXTRA_CURRENT = "extra_reminder_current"
     const val EXTRA_DATE = "extra_reminder_date"
     const val EXTRA_RING = "extra_reminder_ring"
-    const val EXTRA_RINGTONE = "extra_reminder_ringtone"
-    const val EXTRA_MODE = "extra_reminder_mode"
 
     fun schedule(
         context: Context,
@@ -35,9 +32,7 @@ object ReminderScheduler {
         thresholdMinutes: Int,
         currentMinutes: Int,
         date: LocalDate,
-        ring: Boolean,
-        mode: String,
-        ringtoneUri: String
+        ring: Boolean
     ) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
         val pending = pendingIntent(
@@ -47,9 +42,7 @@ object ReminderScheduler {
             thresholdMinutes = thresholdMinutes,
             currentMinutes = currentMinutes,
             date = date,
-            ring = ring,
-            mode = mode,
-            ringtoneUri = ringtoneUri
+            ring = ring
         )
         scheduleAlarm(
             manager = manager,
@@ -69,8 +62,6 @@ object ReminderScheduler {
         thresholdMinutes: Int,
         currentMinutes: Int,
         ring: Boolean,
-        mode: String,
-        ringtoneUri: String,
         delayMinutes: Int
     ) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
@@ -83,9 +74,7 @@ object ReminderScheduler {
             thresholdMinutes = thresholdMinutes,
             currentMinutes = currentMinutes,
             date = LocalDate.now(),
-            ring = ring,
-            mode = mode,
-            ringtoneUri = ringtoneUri
+            ring = ring
         )
         scheduleAlarm(manager, context, triggerAt, pending)
     }
@@ -93,8 +82,7 @@ object ReminderScheduler {
     fun cancel(context: Context) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
         val pending = pendingIntent(
-            context, REQUEST_CODE, ReminderType.OVERTIME, 0, 0, LocalDate.now(), false,
-            ReminderMode.SOUND_VIBRATE.value, ""
+            context, REQUEST_CODE, ReminderType.OVERTIME, 0, 0, LocalDate.now(), false
         )
         manager.cancel(pending)
         pending.cancel()
@@ -103,8 +91,7 @@ object ReminderScheduler {
     fun cancelSnooze(context: Context) {
         val manager = context.getSystemService(AlarmManager::class.java) ?: return
         val pending = pendingIntent(
-            context, SNOOZE_REQUEST_CODE, ReminderType.OVERTIME, 0, 0, LocalDate.now(), false,
-            ReminderMode.SOUND_VIBRATE.value, ""
+            context, SNOOZE_REQUEST_CODE, ReminderType.OVERTIME, 0, 0, LocalDate.now(), false
         )
         manager.cancel(pending)
         pending.cancel()
@@ -194,9 +181,7 @@ object ReminderScheduler {
         thresholdMinutes: Int,
         currentMinutes: Int,
         date: LocalDate,
-        ring: Boolean,
-        mode: String,
-        ringtoneUri: String
+        ring: Boolean
     ): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             putExtra(EXTRA_TYPE, type.value)
@@ -204,8 +189,6 @@ object ReminderScheduler {
             putExtra(EXTRA_CURRENT, currentMinutes)
             putExtra(EXTRA_DATE, date.toString())
             putExtra(EXTRA_RING, ring)
-            putExtra(EXTRA_MODE, mode)
-            putExtra(EXTRA_RINGTONE, ringtoneUri)
         }
         return PendingIntent.getBroadcast(
             context,

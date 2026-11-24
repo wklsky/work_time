@@ -1,7 +1,7 @@
 /**
  * @Author: wj
  * @FilePath: worktime-android/app/src/main/java/com/worktime/pro/domain/reminder/ReminderRingService.kt
- * @Description: 提醒响铃前台服务，用闹钟音频流循环播放铃声并震动，到点后持续响铃直到用户停止
+ * @Description: 提醒响铃前台服务，跟随系统闹钟铃声与音量循环响铃并震动，直到用户停止
  */
 package com.worktime.pro.domain.reminder
 
@@ -11,7 +11,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
-import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
@@ -26,8 +25,6 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.worktime.pro.data.datastore.ReminderMode
-import java.io.File
 
 class ReminderRingService : Service() {
 
@@ -44,9 +41,6 @@ class ReminderRingService : Service() {
         private const val EXTRA_TYPE = "extra_ring_type"
         private const val EXTRA_THRESHOLD = "extra_ring_threshold"
         private const val EXTRA_CURRENT = "extra_ring_current"
-        private const val EXTRA_RINGTONE = "extra_ring_ringtone"
-        private const val EXTRA_MODE = "extra_ring_mode"
-        private const val EXTRA_DURATION = "extra_ring_duration"
 
         /** 最长响铃时长，避免用户没注意到时一直响 */
         const val DEFAULT_RING_DURATION_MS = 60_000L
@@ -63,19 +57,13 @@ class ReminderRingService : Service() {
             context: Context,
             type: ReminderType,
             thresholdMinutes: Int,
-            currentMinutes: Int,
-            ringtoneUri: String,
-            mode: String = ReminderMode.SOUND_VIBRATE.value,
-            durationMs: Long = DEFAULT_RING_DURATION_MS
+            currentMinutes: Int
         ) {
             val intent = Intent(context, ReminderRingService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_TYPE, type.value)
                 putExtra(EXTRA_THRESHOLD, thresholdMinutes)
                 putExtra(EXTRA_CURRENT, currentMinutes)
-                putExtra(EXTRA_RINGTONE, ringtoneUri)
-                putExtra(EXTRA_MODE, mode)
-                putExtra(EXTRA_DURATION, durationMs)
             }
             ContextCompat.startForegroundService(context, intent)
         }
@@ -93,7 +81,6 @@ class ReminderRingService : Service() {
     private val stopRunnable = Runnable { stopSelf() }
     private var mediaPlayer: MediaPlayer? = null
     private var stopAfterMs = DEFAULT_RING_DURATION_MS
-    private var mode = ReminderMode.SOUND_VIBRATE
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
     /** 服务销毁后回调可能仍在队列里，用它阻止迟到的回调重新拉起播放 */
@@ -121,10 +108,7 @@ class ReminderRingService : Service() {
         }
         val current = (intent?.getIntExtra(EXTRA_CURRENT, threshold) ?: threshold)
             .coerceAtLeast(threshold)
-        val ringtoneUri = intent?.getStringExtra(EXTRA_RINGTONE).orEmpty()
-        stopAfterMs = (intent?.getLongExtra(EXTRA_DURATION, DEFAULT_RING_DURATION_MS)
-            ?: DEFAULT_RING_DURATION_MS).coerceIn(1_000L, 5 * 60_000L)
-        mode = ReminderMode.fromValue(intent?.getStringExtra(EXTRA_MODE).orEmpty())
+        stopAfterMs = DEFAULT_RING_DURATION_MS
         // 先标记响铃结束时间：全屏弹窗可能在通知发出的瞬间就被拉起
         ringEndElapsed = SystemClock.elapsedRealtime() + stopAfterMs
 
@@ -144,13 +128,9 @@ class ReminderRingService : Service() {
                         type = type,
                         thresholdMinutes = threshold,
                         currentMinutes = current,
-                        ring = true,
-                        mode = mode.value,
-                        ringtoneUri = ringtoneUri
+                        ring = true
                     ),
-                    fullScreenIntent = alarmScreenIntent(
-                        type, threshold, current, mode.value, ringtoneUri
-                    )
+                    fullScreenIntent = alarmScreenIntent(type, threshold, current)
                 ),
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
@@ -165,33 +145,13 @@ class ReminderRingService : Service() {
             // 该通知交给系统自动取消，不能被下面的 onDestroy 一并清掉
             ownsAlarmNotification = false
             ringEndElapsed = 0L
-            if (mode == ReminderMode.VIBRATE_ONLY) {
-                ReminderNotification.show(
-                    context = this,
-                    type = type,
-                    thresholdMinutes = threshold,
-                    currentMinutes = current,
-                    ring = true,
-                    mode = mode.value,
-                    ringtoneUri = ""
-                )
-            } else {
-                ReminderNotification.showLoud(
-                    context = this,
-                    type = type,
-                    thresholdMinutes = threshold,
-                    currentMinutes = current,
-                    ring = true,
-                    mode = mode.value,
-                    ringtoneUri = ""
-                )
-            }
+            ReminderNotification.showLoud(this, type, threshold, current, true)
             stopSelf()
             return START_NOT_STICKY
         }
         ownsAlarmNotification = true
 
-        startRinging(ringtoneUri)
+        startRinging()
         return START_NOT_STICKY
     }
 
@@ -207,9 +167,7 @@ class ReminderRingService : Service() {
     private fun alarmScreenIntent(
         type: ReminderType,
         threshold: Int,
-        current: Int,
-        mode: String,
-        ringtoneUri: String
+        current: Int
     ): PendingIntent =
         PendingIntent.getActivity(
             this,
@@ -218,56 +176,36 @@ class ReminderRingService : Service() {
                 context = this,
                 type = type,
                 thresholdMinutes = threshold,
-                currentMinutes = current,
-                mode = mode,
-                ringtoneUri = ringtoneUri
+                currentMinutes = current
             ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-    private fun startRinging(ringtoneUri: String) {
+    /**
+     * 业务要求：提醒固定跟随系统闹钟，用闹钟音频流播放系统默认闹钟铃声并同时震动，
+     * 不再提供「仅震动」或自定义音频。工时超标属于不能漏掉的提示，
+     * 一旦允许静音或使用本地文件，静音模式与文件失效都会让提醒彻底无感。
+     * 勿扰是否放行交给系统按 USAGE_ALARM 类别判定，应用不改写用户设定的静音策略。
+     */
+    private fun startRinging() {
         acquireWakeLock(stopAfterMs + 5_000L)
         // 先震动再准备音频：MediaPlayer 首次初始化有耗时，震动先给用户即时反馈
         startVibration()
-        if (mediaPlayer == null && shouldPlaySound()) playFirstAvailable(ringtoneUri)
+        if (mediaPlayer == null) playFirstAvailable()
         stopHandler.removeCallbacks(stopRunnable)
         stopHandler.postDelayed(stopRunnable, stopAfterMs)
     }
 
-    /**
-     * 本次是否出声。仅震动模式直接静音；跟随系统在触发时刻读取铃声模式，
-     * 静音/震动时只震不响，正常模式响铃——勿扰是否放行交给系统按闹钟类别判定，
-     * 三方闹钟应用自行改写静音策略容易与用户预期冲突。
-     */
-    private fun shouldPlaySound(): Boolean = when (mode) {
-        ReminderMode.SOUND_VIBRATE -> true
-        ReminderMode.VIBRATE_ONLY -> false
-        ReminderMode.FOLLOW_SYSTEM -> {
-            val audio = getSystemService(AudioManager::class.java)
-            audio == null || audio.ringerMode == AudioManager.RINGER_MODE_NORMAL
-        }
-    }
-
-    /**
-     * 优先播放用户选择的本地音频；文件被删除/权限失效时依次回退到系统默认闹钟、铃声、通知音。
-     * 支持 content:// 与绝对文件路径两种来源。
-     */
-    private fun ringCandidates(ringtoneUri: String): List<Uri> = buildList {
-        if (ringtoneUri.isNotBlank()) {
-            if (ringtoneUri.startsWith("/")) {
-                add(Uri.fromFile(File(ringtoneUri)))
-            } else {
-                runCatching { Uri.parse(ringtoneUri) }.getOrNull()?.let { add(it) }
-            }
-        }
+    /** 系统默认闹钟音缺失时依次回退到默认铃声、通知音，避免整次提醒静音 */
+    private fun ringCandidates(): List<Uri> = buildList {
         RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)?.let { add(it) }
         RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)?.let { add(it) }
         RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)?.let { add(it) }
     }.distinct()
 
-    /** 按优先级异步尝试候选铃声；某个文件失效时自动换下一个，避免整次提醒静音 */
-    private fun playFirstAvailable(ringtoneUri: String) {
-        playCandidate(ringCandidates(ringtoneUri), 0)
+    /** 按优先级异步尝试候选铃声；某个来源失效时自动换下一个 */
+    private fun playFirstAvailable() {
+        playCandidate(ringCandidates(), 0)
     }
 
     /**

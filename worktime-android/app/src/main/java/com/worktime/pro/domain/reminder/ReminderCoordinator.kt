@@ -44,8 +44,7 @@ class ReminderCoordinator(
         val enabled: Boolean,
         val type: String,
         val minutes: Int,
-        val ring: Boolean,
-        val mode: String
+        val ring: Boolean
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -67,8 +66,7 @@ class ReminderCoordinator(
                     enabled = snapshot.settings.reminderEnabled,
                     type = snapshot.settings.reminderType,
                     minutes = snapshot.settings.reminderMinutes,
-                    ring = snapshot.settings.reminderRingEnabled,
-                    mode = snapshot.settings.reminderMode
+                    ring = snapshot.settings.reminderRingEnabled
                 )
                 // 用户改了提醒配置，之前点的「稍后提醒」已经失去意义，一并取消
                 if (lastConfig != null && lastConfig != config) {
@@ -91,9 +89,7 @@ class ReminderCoordinator(
                         thresholdMinutes = plan.thresholdMinutes,
                         currentMinutes = plan.currentMinutes,
                         date = plan.date,
-                        ring = plan.ring,
-                        mode = plan.mode.value,
-                        ringtoneUri = plan.ringtoneUri
+                        ring = plan.ring
                     )
                 } else {
                     ReminderScheduler.cancel(context)

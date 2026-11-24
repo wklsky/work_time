@@ -12,7 +12,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,13 +56,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
 import com.worktime.pro.data.datastore.ClockDialStyle
-import com.worktime.pro.data.datastore.ReminderMode
 import com.worktime.pro.data.datastore.ThemeMode
 import com.worktime.pro.data.datastore.TimeFormatMode
 import com.worktime.pro.domain.model.PunchType
-import com.worktime.pro.domain.reminder.ReminderAlarmActivity
 import com.worktime.pro.domain.reminder.ReminderReliability
-import com.worktime.pro.domain.reminder.ReminderRingService
 import com.worktime.pro.domain.reminder.ReminderType
 import com.worktime.pro.ui.ViewModelFactory
 import com.worktime.pro.ui.theme.CustomPalette
@@ -358,31 +354,6 @@ fun SettingsReminderScreen(
         }
     }
 
-    // 从本地文件里选择铃声；拿持久化读权限，重启后仍能播放
-    val ringtoneLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-            val name = queryDisplayName(context, uri)
-            if (settings.reminderRingtoneUri.isNotBlank() &&
-                settings.reminderRingtoneUri != uri.toString()
-            ) {
-                releaseRingtonePermission(context, settings.reminderRingtoneUri)
-            }
-            viewModel.setReminderRingtone(uri.toString(), name)
-            Toast.makeText(context, "已选择铃声：$name", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    // 三选项里只有「仅震动」不需要铃声，用它控制铃声行的显示
-    val currentMode = ReminderMode.fromValue(settings.reminderMode)
-
     if (showNotificationRationale) {
         AlertDialog(
             onDismissRequest = { showNotificationRationale = false },
@@ -434,7 +405,7 @@ fun SettingsReminderScreen(
 
     SettingsPage(
         title = "提醒",
-        subtitle = "累计工时达标后提醒，可选响铃、仅震动或跟随系统",
+        subtitle = "累计工时达标后提醒，响铃固定跟随系统闹钟发声并震动",
         onBack = onBack
     ) {
         // 已开启提醒但通知不可用时，置顶提示，避免用户以为提醒失效
@@ -488,7 +459,7 @@ fun SettingsReminderScreen(
                     ItemDivider()
                     SwitchRow(
                         title = "响铃提醒",
-                        description = "到点持续提醒最多 60 秒；可在通知里停止，声音与震动方式见下方",
+                        description = "到点用系统闹钟铃声和音量持续提醒最多 60 秒并震动；可在通知里停止",
                         checked = settings.reminderRingEnabled,
                         onCheckedChange = { enabled ->
                             viewModel.setReminderRingEnabled(enabled)
@@ -501,70 +472,6 @@ fun SettingsReminderScreen(
                             }
                         }
                     )
-                    AnimatedVisibility(visible = settings.reminderRingEnabled) {
-                        Column {
-                            ItemDivider()
-                            ChipBlock(title = "提醒方式") {
-                                ReminderMode.entries.forEach { mode ->
-                                    FilterChip(
-                                        selected = settings.reminderMode == mode.value,
-                                        onClick = { viewModel.setReminderMode(mode) },
-                                        label = { Text(mode.label) }
-                                    )
-                                }
-                            }
-                            Text(
-                                currentMode.summary,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            // 仅震动模式不发声，铃声选择对用户无意义，直接隐藏避免误解
-                            AnimatedVisibility(visible = currentMode != ReminderMode.VIBRATE_ONLY) {
-                                Column {
-                                    ItemDivider()
-                                    SettingRow(
-                                        title = "提醒铃声",
-                                        description = if (settings.reminderRingtoneUri.isBlank()) {
-                                            "系统默认闹钟 · 点击选择本地音频"
-                                        } else {
-                                            "${settings.reminderRingtoneName.ifBlank { "本地音频" }} · 点击更换"
-                                        },
-                                        onClick = { ringtoneLauncher.launch(arrayOf("audio/*")) },
-                                        trailing = {
-                                            if (settings.reminderRingtoneUri.isNotBlank()) {
-                                                TextButton(
-                                                    onClick = {
-                                                        releaseRingtonePermission(
-                                                            context,
-                                                            settings.reminderRingtoneUri
-                                                        )
-                                                        viewModel.clearReminderRingtone()
-                                                    }
-                                                ) {
-                                                    Text("恢复默认")
-                                                }
-                                            } else {
-                                                TextButton(
-                                                    onClick = {
-                                                        ringtoneLauncher.launch(arrayOf("audio/*"))
-                                                    }
-                                                ) {
-                                                    Text("选择")
-                                                }
-                                            }
-                                        }
-                                    )
-                                    Text(
-                                        "支持选择手机里的音频文件；文件被删除或换机恢复备份后会回退到系统默认铃声。",
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -704,48 +611,6 @@ fun SettingsReminderScreen(
                             ) { Text("去设置") }
                         }
                     )
-                    ItemDivider()
-                    SettingRow(
-                        title = "测试提醒",
-                        description = "按当前提醒方式试一次（10 秒），并预览闹铃弹窗与通知栏操作",
-                        trailing = {
-                            TextButton(
-                                onClick = {
-                                    val started = runCatching {
-                                        ReminderRingService.start(
-                                            context = context,
-                                            type = currentReminderType,
-                                            thresholdMinutes = settings.reminderMinutes,
-                                            currentMinutes = settings.reminderMinutes,
-                                            ringtoneUri = settings.reminderRingtoneUri,
-                                            mode = settings.reminderMode,
-                                            durationMs = 10_000L
-                                        )
-                                    }.isSuccess
-                                    if (started) {
-                                        runCatching {
-                                            context.startActivity(
-                                                ReminderAlarmActivity.intent(
-                                                    context = context,
-                                                    type = currentReminderType,
-                                                    thresholdMinutes = settings.reminderMinutes,
-                                                    currentMinutes = settings.reminderMinutes,
-                                                    mode = settings.reminderMode,
-                                                    ringtoneUri = settings.reminderRingtoneUri
-                                                )
-                                            )
-                                        }
-                                    } else {
-                                        Toast.makeText(
-                                            context,
-                                            "响铃启动失败，请检查通知与后台权限",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                }
-                            ) { Text("试响") }
-                        }
-                    )
                 }
             }
         }
@@ -802,33 +667,6 @@ private fun Context.findActivityLifecycleOwner(): LifecycleOwner? {
         current = (current as? ContextWrapper)?.baseContext
     }
     return null
-}
-
-/** 释放不再使用的本地音频读取授权，避免持久化授权越积越多 */
-private fun releaseRingtonePermission(context: Context, uriString: String) {
-    if (uriString.isBlank()) return
-    runCatching {
-        context.contentResolver.releasePersistableUriPermission(
-            Uri.parse(uriString),
-            Intent.FLAG_GRANT_READ_URI_PERMISSION
-        )
-    }
-}
-
-/** 读取 SAF 文件的显示名，取不到时退回 URI 末段 */
-private fun queryDisplayName(context: Context, uri: Uri): String {
-    val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
-    val name = runCatching {
-        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (index >= 0) cursor.getString(index) else null
-            } else {
-                null
-            }
-        }
-    }.getOrNull()
-    return name?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment ?: "本地音频"
 }
 
 /** 阈值滑块：拖动过程中只更新本地状态，松手才写库，避免每一帧都触发 DataStore 写入 */

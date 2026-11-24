@@ -55,9 +55,6 @@ class BackupManager(
                 put("reminderType", settings.reminderType)
                 put("reminderMinutes", settings.reminderMinutes)
                 put("reminderRingEnabled", settings.reminderRingEnabled)
-                put("reminderMode", settings.reminderMode)
-                put("reminderRingtoneUri", settings.reminderRingtoneUri)
-                put("reminderRingtoneName", settings.reminderRingtoneName)
             })
         }
         val dir = File(context.filesDir, Constants.BACKUP_DIR).apply { mkdirs() }
@@ -215,15 +212,9 @@ class BackupManager(
             if (saved.has("reminderRingEnabled")) {
                 settingsDataStore.setReminderRingEnabled(saved.optBoolean("reminderRingEnabled", true))
             }
-            saved.optString("reminderMode").takeIf { it.isNotBlank() }?.let {
-                settingsDataStore.setReminderMode(it)
-            }
-            if (saved.has("reminderRingtoneUri")) {
-                settingsDataStore.setReminderRingtone(
-                    saved.optString("reminderRingtoneUri"),
-                    saved.optString("reminderRingtoneName")
-                )
-            }
+            // 旧备份里的提醒方式与自定义铃声字段不再恢复：当前版本固定跟随系统闹钟，
+            // 避免导入历史设置后把工时提醒变回「仅震动」或指向已失效的本地音频
+
             // 换机/恢复后重新允许当天提醒
             settingsDataStore.setLastReminderKey("")
         }

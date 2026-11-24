@@ -39,9 +39,7 @@ object ReminderNotification {
         type: ReminderType,
         thresholdMinutes: Int,
         currentMinutes: Int,
-        ring: Boolean,
-        mode: String,
-        ringtoneUri: String
+        ring: Boolean
     ) {
         ensureChannel(context)
         if (!canNotify(context)) return
@@ -55,7 +53,7 @@ object ReminderNotification {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(openAppIntent(context))
-        addSnoozeAction(builder, context, type, thresholdMinutes, currentMinutes, ring, mode, ringtoneUri)
+        addSnoozeAction(builder, context, type, thresholdMinutes, currentMinutes, ring)
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
     }
@@ -69,9 +67,7 @@ object ReminderNotification {
         type: ReminderType,
         thresholdMinutes: Int,
         currentMinutes: Int,
-        ring: Boolean,
-        mode: String,
-        ringtoneUri: String
+        ring: Boolean
     ) {
         ensureAlarmSoundChannel(context)
         if (!canNotify(context)) return
@@ -87,7 +83,7 @@ object ReminderNotification {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(openAppIntent(context))
-        addSnoozeAction(builder, context, type, thresholdMinutes, currentMinutes, ring, mode, ringtoneUri)
+        addSnoozeAction(builder, context, type, thresholdMinutes, currentMinutes, ring)
 
         NotificationManagerCompat.from(context).notify(ALARM_NOTIFICATION_ID, builder.build())
     }
@@ -199,9 +195,7 @@ object ReminderNotification {
         type: ReminderType,
         thresholdMinutes: Int,
         currentMinutes: Int,
-        ring: Boolean,
-        mode: String,
-        ringtoneUri: String
+        ring: Boolean
     ) {
         builder.addAction(
             android.R.drawable.ic_popup_reminder,
@@ -211,9 +205,7 @@ object ReminderNotification {
                 type = type,
                 thresholdMinutes = thresholdMinutes,
                 currentMinutes = currentMinutes,
-                ring = ring,
-                mode = mode,
-                ringtoneUri = ringtoneUri
+                ring = ring
             )
         )
     }

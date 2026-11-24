@@ -58,7 +58,6 @@ import androidx.compose.ui.unit.dp
 import com.worktime.pro.MainActivity
 import com.worktime.pro.WorkTimeApplication
 import com.worktime.pro.data.datastore.AppSettings
-import com.worktime.pro.data.datastore.ReminderMode
 import com.worktime.pro.ui.theme.WorkTimeTheme
 import com.worktime.pro.util.TimeFormatter
 import kotlinx.coroutines.delay
@@ -66,21 +65,17 @@ import kotlinx.coroutines.delay
 class ReminderAlarmActivity : ComponentActivity() {
 
     companion object {
-        /** 统一构造弹窗 Intent，服务（全屏通知）与设置页「测试提醒」共用 */
+        /** 统一构造弹窗 Intent，由响铃服务通过全屏通知拉起 */
         fun intent(
             context: Context,
             type: ReminderType,
             thresholdMinutes: Int,
-            currentMinutes: Int,
-            mode: String,
-            ringtoneUri: String
+            currentMinutes: Int
         ): Intent = Intent(context, ReminderAlarmActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(ReminderScheduler.EXTRA_TYPE, type.value)
             putExtra(ReminderScheduler.EXTRA_THRESHOLD, thresholdMinutes)
             putExtra(ReminderScheduler.EXTRA_CURRENT, currentMinutes)
-            putExtra(ReminderScheduler.EXTRA_MODE, mode)
-            putExtra(ReminderScheduler.EXTRA_RINGTONE, ringtoneUri)
         }
     }
 
@@ -100,9 +95,6 @@ class ReminderAlarmActivity : ComponentActivity() {
             return
         }
         val current = intent.getIntExtra(ReminderScheduler.EXTRA_CURRENT, threshold)
-        val mode = intent.getStringExtra(ReminderScheduler.EXTRA_MODE)
-            ?: ReminderMode.SOUND_VIBRATE.value
-        val ringtoneUri = intent.getStringExtra(ReminderScheduler.EXTRA_RINGTONE).orEmpty()
 
         onBackPressedDispatcher.addCallback(this) {
             stopAndFinish()
@@ -124,7 +116,7 @@ class ReminderAlarmActivity : ComponentActivity() {
                     currentMinutes = current,
                     onStop = { stopAndFinish() },
                     onSnooze = { minutes ->
-                        snoozeAndFinish(type, threshold, current, mode, ringtoneUri, minutes)
+                        snoozeAndFinish(type, threshold, current, minutes)
                     },
                     onOpenApp = { openAppAndFinish() },
                     onAutoFinish = { finishOnce() }
@@ -158,8 +150,6 @@ class ReminderAlarmActivity : ComponentActivity() {
         type: ReminderType,
         thresholdMinutes: Int,
         currentMinutes: Int,
-        mode: String,
-        ringtoneUri: String,
         delayMinutes: Int
     ) {
         if (finished) return
@@ -170,8 +160,6 @@ class ReminderAlarmActivity : ComponentActivity() {
             thresholdMinutes = thresholdMinutes,
             currentMinutes = currentMinutes,
             ring = true,
-            mode = mode,
-            ringtoneUri = ringtoneUri,
             delayMinutes = delayMinutes
         )
         ReminderRingService.stop(this)

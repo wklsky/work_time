@@ -16,7 +16,6 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.worktime.pro.data.datastore.AppSettings
 import com.worktime.pro.data.datastore.CalendarDisplayMode
-import com.worktime.pro.data.datastore.ReminderMode
 import com.worktime.pro.data.datastore.ThemeMode
 import com.worktime.pro.data.datastore.TimeFormatMode
 import com.worktime.pro.domain.model.PunchType
@@ -87,8 +86,7 @@ fun SettingsScreen(
                         append(" · ")
                         append(TimeFormatter.formatDuration(settings.reminderMinutes))
                         if (settings.reminderRingEnabled) {
-                            append(" · ")
-                            append(ReminderMode.fromValue(settings.reminderMode).label)
+                            append(" · 响铃提醒")
                         }
                     }
                 } else {
